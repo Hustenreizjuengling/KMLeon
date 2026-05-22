@@ -1,0 +1,204 @@
+--------------------------------------------------------------------------------
+-- KMLeon :: PCK_KML_JOB_API  (convenience API for consuming applications)
+--------------------------------------------------------------------------------
+-- Thin, optional wrapper over the DML packages and the engine. Applications may
+-- equally call the *_DML packages directly. create_job/add_asset do NOT commit
+-- (so a job + its assets can be built in one transaction); submit/run/cancel/
+-- purge commit.
+--
+-- Typical usage:
+--   l_job := pck_kml_job_api.create_job('Routes', p_output_format => 'KMZ');
+--   pck_kml_job_api.add_asset(l_job, p_geometry_geojson =>
+--       '{"type":"Point","coordinates":[13.405,52.52]}', p_name => 'Berlin');
+--   commit;
+--   pck_kml_job_api.submit_job(l_job);   -- dispatcher runs it; or run_now(l_job)
+--------------------------------------------------------------------------------
+
+create or replace package pck_kml_job_api
+  authid definer
+as
+  c_pkg constant varchar2(30) := 'PCK_KML_JOB_API';
+
+  function create_job(
+    p_document_name   in varchar2,
+    p_description     in varchar2 default null,
+    p_output_format   in varchar2 default 'KMZ',
+    p_output_filename in varchar2 default null,
+    p_priority        in number   default 100,
+    p_user_tab        in varchar2 default null,
+    p_user_id         in varchar2 default null
+  ) return number;
+
+  -- Supply EXACTLY ONE of p_geometry_sdo / p_geometry_geojson.
+  function add_asset(
+    p_job_id           in number,
+    p_geometry_sdo     in sdo_geometry default null,
+    p_geometry_geojson in clob         default null,
+    p_name             in varchar2 default null,
+    p_description      in clob     default null,
+    p_extended_data    in clob     default null,
+    p_folder_name      in varchar2 default null,
+    p_display_order    in number   default 0,
+    p_altitude_mode    in varchar2 default null,
+    p_extrude          in varchar2 default 'N',
+    p_tessellate       in varchar2 default 'N',
+    p_icon_href        in varchar2 default null,
+    p_icon_scale       in number   default null,
+    p_label_color      in varchar2 default null,
+    p_label_scale      in number   default null,
+    p_line_color       in varchar2 default null,
+    p_line_width       in number   default null,
+    p_poly_color       in varchar2 default null,
+    p_poly_fill        in varchar2 default null,
+    p_poly_outline     in varchar2 default null,
+    p_visibility       in varchar2 default 'Y'
+  ) return number;
+
+  procedure submit_job(p_job_id in number);   -- DRAFT -> PENDING; commits
+  procedure run_now(p_job_id in number);      -- run synchronously; commits
+  procedure cancel_job(p_job_id in number);   -- DRAFT/PENDING -> CANCELLED; commits
+
+  function get_status(p_job_id in number) return varchar2;
+  function get_kml(p_job_id in number)    return clob;
+  function get_kmz(p_job_id in number)    return blob;
+
+  procedure purge_jobs(p_older_than_days in number default 30);  -- commits
+end pck_kml_job_api;
+/
+
+create or replace package body pck_kml_job_api
+as
+
+  function create_job(
+    p_document_name   in varchar2,
+    p_description     in varchar2 default null,
+    p_output_format   in varchar2 default 'KMZ',
+    p_output_filename in varchar2 default null,
+    p_priority        in number   default 100,
+    p_user_tab        in varchar2 default null,
+    p_user_id         in varchar2 default null
+  ) return number
+  is
+  begin
+    return pck_kml_jobs_dml.ins(
+             p_document_name   => p_document_name,
+             p_description     => p_description,
+             p_output_format   => p_output_format,
+             p_output_filename => p_output_filename,
+             p_priority        => p_priority,
+             p_user_tab        => p_user_tab,
+             p_user_id         => p_user_id);
+  end create_job;
+
+
+  function add_asset(
+    p_job_id           in number,
+    p_geometry_sdo     in sdo_geometry default null,
+    p_geometry_geojson in clob         default null,
+    p_name             in varchar2 default null,
+    p_description      in clob     default null,
+    p_extended_data    in clob     default null,
+    p_folder_name      in varchar2 default null,
+    p_display_order    in number   default 0,
+    p_altitude_mode    in varchar2 default null,
+    p_extrude          in varchar2 default 'N',
+    p_tessellate       in varchar2 default 'N',
+    p_icon_href        in varchar2 default null,
+    p_icon_scale       in number   default null,
+    p_label_color      in varchar2 default null,
+    p_label_scale      in number   default null,
+    p_line_color       in varchar2 default null,
+    p_line_width       in number   default null,
+    p_poly_color       in varchar2 default null,
+    p_poly_fill        in varchar2 default null,
+    p_poly_outline     in varchar2 default null,
+    p_visibility       in varchar2 default 'Y'
+  ) return number
+  is
+  begin
+    return pck_kml_job_assets_dml.ins(
+             p_job_id           => p_job_id,
+             p_geometry_sdo     => p_geometry_sdo,
+             p_geometry_geojson => p_geometry_geojson,
+             p_name             => p_name,
+             p_description      => p_description,
+             p_extended_data    => p_extended_data,
+             p_folder_name      => p_folder_name,
+             p_display_order    => p_display_order,
+             p_altitude_mode    => p_altitude_mode,
+             p_extrude          => p_extrude,
+             p_tessellate       => p_tessellate,
+             p_icon_href        => p_icon_href,
+             p_icon_scale       => p_icon_scale,
+             p_label_color      => p_label_color,
+             p_label_scale      => p_label_scale,
+             p_line_color       => p_line_color,
+             p_line_width       => p_line_width,
+             p_poly_color       => p_poly_color,
+             p_poly_fill        => p_poly_fill,
+             p_poly_outline     => p_poly_outline,
+             p_visibility       => p_visibility);
+  end add_asset;
+
+
+  procedure submit_job(p_job_id in number) is
+    l_status kml_jobs.status%type;
+  begin
+    l_status := get_status(p_job_id);
+    if l_status != 'DRAFT' then
+      raise_application_error(-20810,
+        'Job ' || p_job_id || ' cannot be submitted (status ' || l_status || ', expected DRAFT).');
+    end if;
+    pck_kml_jobs_dml.set_status(p_job_id, 'PENDING');
+    commit;
+  end submit_job;
+
+
+  procedure run_now(p_job_id in number) is
+  begin
+    pck_kml_engine.run_job(p_job_id);   -- commits internally
+  end run_now;
+
+
+  procedure cancel_job(p_job_id in number) is
+  begin
+    if pck_kml_jobs_dml.cancel(p_job_id) = 0 then
+      raise_application_error(-20811,
+        'Job ' || p_job_id || ' cannot be cancelled (not found or already running/finished).');
+    end if;
+    commit;
+  end cancel_job;
+
+
+  function get_status(p_job_id in number) return varchar2 is
+    l_job kml_jobs%rowtype;
+  begin
+    l_job := pck_kml_jobs_dml.get(p_job_id);
+    return l_job.status;
+  end get_status;
+
+
+  function get_kml(p_job_id in number) return clob is
+    l_job kml_jobs%rowtype;
+  begin
+    l_job := pck_kml_jobs_dml.get(p_job_id);
+    return l_job.result_kml;
+  end get_kml;
+
+
+  function get_kmz(p_job_id in number) return blob is
+    l_job kml_jobs%rowtype;
+  begin
+    l_job := pck_kml_jobs_dml.get(p_job_id);
+    return l_job.result_kmz;
+  end get_kmz;
+
+
+  procedure purge_jobs(p_older_than_days in number default 30) is
+  begin
+    pck_kml_jobs_dml.purge_finished(p_older_than_days);
+    commit;
+  end purge_jobs;
+
+end pck_kml_job_api;
+/

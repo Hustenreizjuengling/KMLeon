@@ -1,0 +1,33 @@
+# --- KMLeon ---
+
+# Claude Code working files must never be committed
+CLAUDE.md
+.claude/
+**/CLAUDE.md
+
+# SQL*Plus / SQLcl spool & log output
+*.log
+*.lst
+*.spool
+login.sql
+
+# Generated KML/KMZ artifacts (engine output lives in the DB, not in the repo)
+*.kml
+*.kmz
+
+# Local environment / connection details
+*.env
+.env
+connect.local.sql
+tnsnames.local.ora
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
