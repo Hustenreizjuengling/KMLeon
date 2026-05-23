@@ -100,6 +100,7 @@ Recognized aliases (case-insensitive):
 | `NAME`, `DESCRIPTION`, `FOLDER_NAME`, `VISIBILITY` | placemark basics |
 | `ICON_HREF`, `ICON_SCALE`, `LABEL_COLOR`, `LABEL_SCALE` | style |
 | `LINE_COLOR`, `LINE_WIDTH`, `POLY_COLOR`, `POLY_FILL`, `POLY_OUTLINE` | style |
+| `ALTITUDE_MODE`, `EXTRUDE`, `TESSELLATE` | placement (3D viewers; `Y`/`N` for the flags) |
 | `EXTENDED_DATA` | JSON object → `<ExtendedData>` |
 | *(any other column)* | one `<ExtendedData>` property, name = alias |
 | `DISPLAY_ORDER` | ignored (ordering comes from the query's `ORDER BY`) |
@@ -161,8 +162,10 @@ Simple and fully generic; trades file size for simplicity on large exports.
 
 ## Known limitations / future work
 
-- **Placement modifiers** (`altitude_mode` / `extrude` / `tessellate`) are stored
-  but not yet injected into the `SDO_UTIL.TO_KMLGEOMETRY` output.
+- **Placement modifiers** (`altitude_mode` / `extrude` / `tessellate`) are injected
+  into the geometry output. They affect **3D viewers only** (Google Earth, Cesium);
+  2D viewers ignore them, and `altitude_mode`/`extrude` need Z-bearing geometry to
+  be meaningful. `GEOMETRY_KML` passthrough is left untouched (caller-controlled).
 - **Folders**: single level only.
 - **Inline styles**: no shared `<Style>` de-duplication yet.
 - **KMZ**: relies on `APEX_ZIP`; swap in a pure-PL/SQL zipper if APEX is absent.

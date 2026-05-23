@@ -27,8 +27,17 @@ as
   c_pkg     constant varchar2(30)  := 'PCK_KML_ENGINE';
   gc_kml_ns constant varchar2(100) := 'http://www.opengis.net/kml/2.2';
 
-  -- Convert geometry (SDO or GeoJSON) into a KML geometry fragment.
-  function geometry_to_kml(p_sdo in sdo_geometry, p_geojson in clob) return clob;
+  -- Convert geometry (SDO or GeoJSON) into a KML geometry fragment, optionally
+  -- injecting placement tags (altitudeMode / extrude / tessellate). These affect
+  -- only 3D viewers (Google Earth, Cesium, ...); 2D viewers ignore them, and
+  -- altitudeMode/extrude need Z-bearing geometry to be meaningful.
+  function geometry_to_kml(
+    p_sdo           in sdo_geometry,
+    p_geojson       in clob,
+    p_altitude_mode in varchar2 default null,
+    p_extrude       in varchar2 default 'N',
+    p_tessellate    in varchar2 default 'N'
+  ) return clob;
 
   -- Build the complete KML document for a job (read-only; no writes/commit).
   -- For QUERY jobs this always STREAMS (preview); materialization happens in run_job.
@@ -94,8 +103,21 @@ as
   -- Geometry
   --==============================================================================
 
-  function geometry_to_kml(p_sdo in sdo_geometry, p_geojson in clob) return clob is
+  function geometry_to_kml(
+    p_sdo           in sdo_geometry,
+    p_geojson       in clob,
+    p_altitude_mode in varchar2 default null,
+    p_extrude       in varchar2 default 'N',
+    p_tessellate    in varchar2 default 'N'
+  ) return clob is
     l_geom sdo_geometry;
+    l_kml  clob;
+    l_ex   varchar2(40)  := case when p_extrude    = 'Y' then '<extrude>1</extrude>' end;
+    l_te   varchar2(40)  := case when p_tessellate = 'Y' then '<tessellate>1</tessellate>' end;
+    l_am   varchar2(120) := case when p_altitude_mode is not null
+                                 then '<altitudeMode>' || escape_xml(p_altitude_mode) || '</altitudeMode>' end;
+    l_pt   varchar2(200) := l_ex || l_am;          -- Point: tessellate is not valid
+    l_ln   varchar2(200) := l_ex || l_te || l_am;  -- LineString / Polygon
   begin
     if p_sdo is not null then
       l_geom := p_sdo;
@@ -104,7 +126,22 @@ as
     else
       return null;
     end if;
-    return sdo_util.to_kmlgeometry(l_geom);
+
+    l_kml := sdo_util.to_kmlgeometry(l_geom);
+
+    -- Inject placement tags right after each geometry's opening tag (KML requires
+    -- them before <coordinates>/boundaries). Works for standalone geometries and
+    -- for <MultiGeometry> children alike; <LinearRing>/<MultiGeometry> are skipped
+    -- (they inherit from the enclosing <Polygon> / carry no altitudeMode).
+    if l_pt is not null then
+      l_kml := replace(l_kml, '<Point>', '<Point>' || l_pt);
+    end if;
+    if l_ln is not null then
+      l_kml := replace(l_kml, '<LineString>', '<LineString>' || l_ln);
+      l_kml := replace(l_kml, '<Polygon>',    '<Polygon>'    || l_ln);
+    end if;
+
+    return l_kml;
   exception
     when others then
       pck_kml_log.warn(c_pkg, 'geometry_to_kml', sqlerrm);
@@ -386,7 +423,8 @@ as
        order by case when folder_name is null then 0 else 1 end,
                 folder_name, display_order, asset_id
     ) loop
-      l_geom := geometry_to_kml(r.geometry_sdo, r.geometry_geojson);
+      l_geom := geometry_to_kml(r.geometry_sdo, r.geometry_geojson,
+                                r.altitude_mode, r.extrude, r.tessellate);
       if l_geom is not null and dbms_lob.getlength(l_geom) > 0 then
         switch_folder(l_kml, l_open, l_cur, r.folder_name);
         append_placemark(l_kml, r.name, r.description, build_extended_data(r.extended_data),
@@ -666,11 +704,11 @@ as
 
       else  -- STREAM
         if l_geom_kml is not null and dbms_lob.getlength(l_geom_kml) > 0 then
-          l_geom := l_geom_kml;
+          l_geom := l_geom_kml;   -- passthrough: caller-supplied KML is left as-is
         elsif l_geom_sdo is not null then
-          l_geom := geometry_to_kml(l_geom_sdo, null);
+          l_geom := geometry_to_kml(l_geom_sdo, null, l_alt, l_extr, l_tess);
         elsif l_geom_geojson is not null and dbms_lob.getlength(l_geom_geojson) > 0 then
-          l_geom := geometry_to_kml(null, l_geom_geojson);
+          l_geom := geometry_to_kml(null, l_geom_geojson, l_alt, l_extr, l_tess);
         end if;
 
         if l_geom is not null and dbms_lob.getlength(l_geom) > 0 then

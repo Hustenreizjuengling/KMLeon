@@ -243,7 +243,6 @@ See [`docs/data-model.md`](docs/data-model.md) for the full column reference and
 
 ## Roadmap
 
-- Apply `altitude_mode` / `extrude` / `tessellate` to `TO_KMLGEOMETRY` output.
 - Nested `<Folder>` hierarchies.
 - Shared `<Style>` de-duplication (`styleUrl`) for large exports.
 - Pure-PL/SQL ZIP fallback so KMZ works without APEX.

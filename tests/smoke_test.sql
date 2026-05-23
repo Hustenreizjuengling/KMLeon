@@ -53,6 +53,16 @@ begin
            p_poly_color       => pck_kml_engine.rgba_to_kml('0000FF', 80),
            p_poly_fill        => 'Y');
 
+  -- 3D extruded point (tower at 150 m), geometry as GeoJSON with altitude.
+  -- Renders as a vertical "pole" to the ground in 3D viewers (Google Earth/Cesium).
+  l_a := pck_kml_job_api.add_asset(
+           p_job_id           => l_job,
+           p_geometry_geojson => to_clob('{"type":"Point","coordinates":[13.4094,52.5219,150]}'),
+           p_name             => 'Tower',
+           p_folder_name      => 'Cities',
+           p_altitude_mode    => 'relativeToGround',
+           p_extrude          => 'Y');
+
   commit;
   pck_kml_job_api.run_now(l_job);
 
