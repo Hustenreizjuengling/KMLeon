@@ -14,6 +14,7 @@ end;
 
 drop package pck_kml_job_api;
 drop package pck_kml_engine;
+drop package pck_kml_notify;
 drop package pck_kml_kmz;
 drop package pck_kml_job_assets_dml;
 drop package pck_kml_jobs_dml;

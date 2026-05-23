@@ -19,9 +19,10 @@ create table kml_jobs (
   source_mode       varchar2(12)    default 'STREAM' not null,  -- QUERY: STREAM | MATERIALIZE
   source_query      clob,                                -- QUERY: SELECT run at job time
   source_binds      clob,                                -- QUERY: JSON object of bind values
-  --- creator (for explicit ownership / later email notification) -------------
+  --- creator / notification recipient -----------------------------------------
   user_tab          varchar2(128),                       -- source table of the creating user
   user_id           varchar2(128),                       -- creating user's id within user_tab
+  notify_email      varchar2(400),                       -- explicit recipient (wins over user_tab/user_id)
   --- result (exactly one of the two is populated on success) ------------------
   result_kml        clob,
   result_kmz        blob,
@@ -30,6 +31,7 @@ create table kml_jobs (
   error_message     varchar2(4000),
   started_at        timestamp,
   finished_at       timestamp,
+  notified_at       timestamp,                           -- set by PCK_KML_NOTIFY on send/handoff
   --- audit (auto-populated by PCK_KML_JOBS_DML when passed NULL) --------------
   created_at        timestamp       default systimestamp,
   created_by        varchar2(128)   default user,
@@ -60,7 +62,9 @@ comment on column kml_jobs.source_type    is 'ASSETS = render rows from KML_JOB_
 comment on column kml_jobs.source_mode    is 'QUERY jobs: STREAM = render rows directly to KML (no assets); MATERIALIZE = insert rows into KML_JOB_ASSETS first, then render.';
 comment on column kml_jobs.source_query   is 'QUERY jobs: a SELECT whose column aliases drive the output (GEOMETRY/GEOMETRY_GEOJSON/GEOMETRY_KML, NAME, DESCRIPTION, FOLDER_NAME, *_COLOR, ...). Unknown aliases become ExtendedData. Use binds for parameters.';
 comment on column kml_jobs.source_binds   is 'QUERY jobs: optional JSON object {"bind":"value"} bound into source_query.';
-comment on column kml_jobs.user_tab       is 'Name of the source table identifying the creating user (for later notification).';
+comment on column kml_jobs.user_tab       is 'Name of the source table identifying the creating user (for notification via PCK_KML_NOTIFY.resolve_recipient).';
 comment on column kml_jobs.user_id        is 'Id of the creating user within user_tab.';
+comment on column kml_jobs.notify_email   is 'Explicit notification recipient; takes precedence over user_tab/user_id (e.g. for REST callers not resolvable in the DB).';
+comment on column kml_jobs.notified_at    is 'Timestamp when PCK_KML_NOTIFY handed the job off to the mail sender (NULL = not yet notified).';
 comment on column kml_jobs.result_kml     is 'Generated KML document (populated when output_format = KML).';
 comment on column kml_jobs.result_kmz     is 'Generated KMZ archive (populated when output_format = KMZ).';

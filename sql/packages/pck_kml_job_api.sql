@@ -26,7 +26,8 @@ as
     p_output_filename in varchar2 default null,
     p_priority        in number   default 100,
     p_user_tab        in varchar2 default null,
-    p_user_id         in varchar2 default null
+    p_user_id         in varchar2 default null,
+    p_notify_email    in varchar2 default null
   ) return number;
 
   -- Create a self-contained QUERY job in DRAFT status. The SELECT is executed at
@@ -48,7 +49,8 @@ as
     p_output_filename in varchar2 default null,
     p_priority        in number   default 100,
     p_user_tab        in varchar2 default null,
-    p_user_id         in varchar2 default null
+    p_user_id         in varchar2 default null,
+    p_notify_email    in varchar2 default null
   ) return number;
 
   -- Bulk-add features to a job from GeoJSON (FeatureCollection / Feature / bare
@@ -102,7 +104,8 @@ as
     p_output_filename in varchar2 default null,
     p_priority        in number   default 100,
     p_user_tab        in varchar2 default null,
-    p_user_id         in varchar2 default null
+    p_user_id         in varchar2 default null,
+    p_notify_email    in varchar2 default null
   ) return number
   is
   begin
@@ -113,7 +116,8 @@ as
              p_output_filename => p_output_filename,
              p_priority        => p_priority,
              p_user_tab        => p_user_tab,
-             p_user_id         => p_user_id);
+             p_user_id         => p_user_id,
+             p_notify_email    => p_notify_email);
   end create_job;
 
 
@@ -127,7 +131,8 @@ as
     p_output_filename in varchar2 default null,
     p_priority        in number   default 100,
     p_user_tab        in varchar2 default null,
-    p_user_id         in varchar2 default null
+    p_user_id         in varchar2 default null,
+    p_notify_email    in varchar2 default null
   ) return number
   is
   begin
@@ -139,6 +144,7 @@ as
              p_priority        => p_priority,
              p_user_tab        => p_user_tab,
              p_user_id         => p_user_id,
+             p_notify_email    => p_notify_email,
              p_source_type     => 'QUERY',
              p_source_mode     => p_source_mode,
              p_source_query    => p_source_query,

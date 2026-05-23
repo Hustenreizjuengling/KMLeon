@@ -907,12 +907,24 @@ as
     end if;
 
     commit;
+
+    -- best-effort completion notification (must never affect the committed job)
+    begin
+      pck_kml_notify.notify(p_job_id, 'COMPLETED');
+    exception when others then
+      pck_kml_log.error(c_pkg, 'run_job', 'notify(COMPLETED) failed: ' || sqlerrm, p_job_id);
+    end;
   exception
     when others then
       rollback;
       pck_kml_jobs_dml.set_failed(p_job_id,
         sqlerrm || chr(10) || dbms_utility.format_error_backtrace);
       commit;
+      begin
+        pck_kml_notify.notify(p_job_id, 'FAILED');
+      exception when others then
+        pck_kml_log.error(c_pkg, 'run_job', 'notify(FAILED) failed: ' || sqlerrm, p_job_id);
+      end;
   end run_job;
 
 

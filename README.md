@@ -72,6 +72,7 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 | `KML_LOG` | central log (`PCK_KML_LOG`) |
 | `PCK_KML_ENGINE` | the generic generator: geometry→KML, assembly, execution, dispatcher |
 | `PCK_KML_KMZ` | KMZ zipping (isolated `APEX_ZIP` dependency) |
+| `PCK_KML_NOTIFY` | completion e-mail (file attached); generic, with `resolve_recipient` / `send_mail` hooks |
 | `PCK_KML_JOB_API` | optional convenience wrapper |
 
 ## Requirements
@@ -244,7 +245,6 @@ See [`docs/data-model.md`](docs/data-model.md) for the full column reference and
 
 ## Roadmap
 
-- Email notification to a job's creator (`user_tab` / `user_id`) on completion.
 - `<StyleMap>` (normal/highlight) styles.
 - A utPLSQL test suite.
 

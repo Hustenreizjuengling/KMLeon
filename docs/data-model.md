@@ -29,14 +29,16 @@ One row per export request and its result.
 | `source_mode` | VARCHAR2(12) | `QUERY` jobs: `STREAM` (direct to KML, default) or `MATERIALIZE` (write assets first). |
 | `source_query` | CLOB | `QUERY` jobs: the SELECT run at job time. |
 | `source_binds` | CLOB | `QUERY` jobs: JSON object of bind values, e.g. `{"region":"DE"}`. |
-| `user_tab` | VARCHAR2(128) | Source table of the creating user (for later notification). |
+| `user_tab` | VARCHAR2(128) | Source table of the creating user (resolved to an email by `PCK_KML_NOTIFY`). |
 | `user_id` | VARCHAR2(128) | Creating user's id within `user_tab`. |
+| `notify_email` | VARCHAR2(400) | Explicit recipient; **wins over** `user_tab`/`user_id` (e.g. for REST callers). |
 | `result_kml` | CLOB | Populated when `output_format = KML`. |
 | `result_kmz` | BLOB | Populated when `output_format = KMZ`. |
 | `result_size_bytes` | NUMBER | Size of the produced artifact. |
 | `asset_count` | NUMBER | Features rendered. |
 | `error_message` | VARCHAR2(4000) | Set when `status = FAILED`. |
 | `started_at` / `finished_at` | TIMESTAMP | Execution window. |
+| `notified_at` | TIMESTAMP | Set by `PCK_KML_NOTIFY` when the mail was handed to the sender. |
 | audit (4 cols) | — | See above. |
 
 ## `KML_JOB_ASSETS`
@@ -163,6 +165,24 @@ Identical styles are **deduplicated**: each distinct style is emitted once as a
 references it via `<styleUrl>#ks#</styleUrl>`. For large exports where many
 features share styling this makes the output dramatically smaller. Placemarks with
 no style attributes get no `<styleUrl>`.
+
+## Notifications (`PCK_KML_NOTIFY`)
+
+When a job finishes, `PCK_KML_ENGINE.run_job` calls `PCK_KML_NOTIFY.notify`
+best-effort (a notification problem never affects the job). It **prepares** the
+e-mail generically — subject, body, and the result file as an attachment (KMZ
+directly, KML converted to a BLOB; skipped if larger than `gc_max_attach_bytes`,
+default 10 MB) — and then hands it to a sender. `notified_at` is stamped on handoff.
+
+Two body hooks (safe defaults, marked `CUSTOMIZE HERE`) are the only edit points:
+
+- `resolve_recipient(user_tab, user_id)` → returns an e-mail; **default `NULL`**.
+- `send_mail(t_mail)` → calls APEX_MAIL or your own wrapper; **default no-op** (logs).
+
+Recipient precedence: `notify_email` (explicit, e.g. from REST) wins; otherwise
+`resolve_recipient` is consulted. With neither configured, the mail is prepared and
+logged but nothing is sent — the job is unaffected. Notifications fire on both
+`COMPLETED` and `FAILED` (failure mails carry the error, no attachment).
 
 ## Known limitations / future work
 

@@ -108,7 +108,8 @@ begin
                     p_output_filename => l_in.get_string('output_filename'),
                     p_priority        => nvl(l_in.get_number('priority'), 100),
                     p_user_tab        => l_in.get_string('user_tab'),
-                    p_user_id         => l_in.get_string('user_id'));
+                    p_user_id         => l_in.get_string('user_id'),
+                    p_notify_email    => l_in.get_string('notify_email'));
           commit;
           :status_code := 201;
           owa_util.mime_header('application/json');
