@@ -25,6 +25,10 @@ One row per export request and its result.
 | `status` | VARCHAR2(20) | `DRAFT`→`PENDING`→`RUNNING`→`COMPLETED`/`FAILED`/`CANCELLED`. |
 | `priority` | NUMBER | Lower is processed first (default 100). |
 | `output_filename` | VARCHAR2(260) | Suggested download name. |
+| `source_type` | VARCHAR2(10) | `ASSETS` (render `KML_JOB_ASSETS`) or `QUERY` (run a SELECT). |
+| `source_mode` | VARCHAR2(12) | `QUERY` jobs: `STREAM` (direct to KML, default) or `MATERIALIZE` (write assets first). |
+| `source_query` | CLOB | `QUERY` jobs: the SELECT run at job time. |
+| `source_binds` | CLOB | `QUERY` jobs: JSON object of bind values, e.g. `{"region":"DE"}`. |
 | `user_tab` | VARCHAR2(128) | Source table of the creating user (for later notification). |
 | `user_id` | VARCHAR2(128) | Creating user's id within `user_tab`. |
 | `result_kml` | CLOB | Populated when `output_format = KML`. |
@@ -77,6 +81,63 @@ Central log, written only by `PCK_KML_LOG` (autonomous transaction).
 | audit (4 cols) | — | |
 
 Threshold is `INFO` by default; change with `PCK_KML_LOG.set_threshold('DEBUG')`.
+
+## Query source (`source_type = 'QUERY'`)
+
+Instead of filling `KML_JOB_ASSETS`, a job may carry a `SELECT` in `source_query`.
+At run time `PCK_KML_ENGINE` parses it with `DBMS_SQL`, inspects the column
+**aliases** (`DESCRIBE_COLUMNS3`), and streams each row directly into the KML —
+nothing is written to `KML_JOB_ASSETS`. This keeps the (potentially slow) data
+fetch inside the asynchronous job.
+
+Recognized aliases (case-insensitive):
+
+| Alias | Maps to |
+|---|---|
+| `GEOMETRY` / `GEOMETRY_SDO` | geometry, as `SDO_GEOMETRY` |
+| `GEOMETRY_GEOJSON` | geometry, as GeoJSON text |
+| `GEOMETRY_KML` | geometry, already KML (passthrough) |
+| `NAME`, `DESCRIPTION`, `FOLDER_NAME`, `VISIBILITY` | placemark basics |
+| `ICON_HREF`, `ICON_SCALE`, `LABEL_COLOR`, `LABEL_SCALE` | style |
+| `LINE_COLOR`, `LINE_WIDTH`, `POLY_COLOR`, `POLY_FILL`, `POLY_OUTLINE` | style |
+| `EXTENDED_DATA` | JSON object → `<ExtendedData>` |
+| *(any other column)* | one `<ExtendedData>` property, name = alias |
+| `DISPLAY_ORDER` | ignored (ordering comes from the query's `ORDER BY`) |
+
+By default the query **streams** to KML. With `source_mode = 'MATERIALIZE'` the
+engine first inserts each row into `KML_JOB_ASSETS` (via `PCK_KML_JOB_ASSETS_DML`,
+unknown aliases → `extended_data` JSON) and then renders from those assets —
+choose this when you want the rendered features persisted/inspectable.
+`GEOMETRY_KML` passthrough is not storable, so it is skipped under MATERIALIZE.
+
+Notes:
+
+- Provide exactly one geometry alias per row.
+- `ORDER BY` the folder column if you want contiguous `<Folder>` grouping.
+- Parameters must be **binds** referenced as `:name`, supplied via `source_binds`
+  JSON; bind values are passed as strings.
+- Supported column data types: VARCHAR2/CHAR, NUMBER, DATE, CLOB, and
+  `SDO_GEOMETRY`. CAST anything else (e.g. TIMESTAMP) in the SELECT.
+- **Security:** the query runs as the KMLeon (definer) schema in the dispatcher;
+  only trusted callers should enqueue `QUERY` jobs.
+
+## GeoJSON ingestion (external / REST)
+
+`PCK_KML_JOB_ASSETS_DML.add_features_geojson(p_job_id, p_feature_collection)`
+(also surfaced as `PCK_KML_JOB_API.add_features_geojson`) bulk-inserts assets from
+a GeoJSON **FeatureCollection**, a single **Feature**, or a bare **geometry**. It
+uses the *same* mapping contract as the QUERY source, expressed via Feature
+`properties`:
+
+- `geometry` → `geometry_geojson`.
+- reserved property names (case-insensitive) → columns: `NAME`, `DESCRIPTION`,
+  `FOLDER_NAME`, `VISIBILITY`, `DISPLAY_ORDER`, `ALTITUDE_MODE`, `EXTRUDE`,
+  `TESSELLATE`, `ICON_HREF`, `ICON_SCALE`, `LABEL_COLOR`, `LABEL_SCALE`,
+  `LINE_COLOR`, `LINE_WIDTH`, `POLY_COLOR`, `POLY_FILL`, `POLY_OUTLINE`.
+- every other property → `extended_data` JSON (→ `<ExtendedData>` at render time).
+
+This is the external counterpart to the internal QUERY source: same contract, same
+render core, only the ingestion channel differs.
 
 ## Geometry
 

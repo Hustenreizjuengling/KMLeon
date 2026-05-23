@@ -13,12 +13,16 @@ by an Oracle `DBMS_SCHEDULER` dispatcher (or run synchronously on demand).
 ```
   application                  KMLeon (PL/SQL)                 output
   -----------                  ---------------                 ------
-  PCK_KML_JOB_API.create_job ─┐
-  PCK_KML_JOB_API.add_asset   ┘─► PCK_KML_ENGINE.run_job ──► result_kml (CLOB)
-        submit_job (PENDING)        ├─ SDO/GeoJSON → KML            or
-                                    └─ PCK_KML_KMZ.zip_kml ──► result_kmz (BLOB)
-        DBMS_SCHEDULER  ──────────► PCK_KML_ENGINE.process_pending
+  create_job + add_asset ─┐  (ASSETS: app fills KML_JOB_ASSETS)
+  create_job_from_query  ─┤  (QUERY:  app stores a SELECT, streamed at run time)
+                          └─► PCK_KML_ENGINE.run_job ──► result_kml (CLOB)
+        submit_job (PENDING)    ├─ SDO/GeoJSON → KML              or
+                                └─ PCK_KML_KMZ.zip_kml ──► result_kmz (BLOB)
+        DBMS_SCHEDULER  ──────► PCK_KML_ENGINE.process_pending
 ```
+
+Two data sources per job: **`ASSETS`** (rows in `KML_JOB_ASSETS`) or **`QUERY`**
+(a stored `SELECT` executed and streamed at run time — see below).
 
 Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED`.
 
@@ -94,6 +98,93 @@ end;
 
 The API is optional sugar over the DML packages — you may call those directly,
 but never write the tables with raw INSERT/UPDATE/DELETE.
+
+### Query-driven (streaming) jobs
+
+For large or slow exports you usually don't want to materialize assets up front.
+A **`QUERY` job** stores a `SELECT` on the job; the dispatcher runs it *inside the
+job* (so the slow data-fetch is asynchronous too) and streams each row straight to
+KML — **no assets are written**. Column **aliases** drive the output:
+
+```sql
+declare
+  l_job number;
+begin
+  l_job := pck_kml_job_api.create_job_from_query(
+    p_document_name => 'Stores by region',
+    p_output_format => 'KMZ',
+    p_source_binds  => '{"region":"DE"}',          -- bound as :region
+    p_source_query  => q'[
+        select shape           as geometry,         -- SDO_GEOMETRY column
+               store_name      as name,
+               region          as folder_name,
+               opened_on       as opening_date,     -- unknown alias -> ExtendedData
+               :region         as queried_region
+          from stores
+         where region = :region
+         order by region                            -- ORDER BY folder to group
+      ]');
+  commit;
+  pck_kml_job_api.submit_job(l_job);   -- dispatcher streams it; or run_now(l_job)
+end;
+/
+```
+
+Recognized aliases: `GEOMETRY` (SDO) | `GEOMETRY_GEOJSON` | `GEOMETRY_KML`, plus
+`NAME`, `DESCRIPTION`, `FOLDER_NAME`, `VISIBILITY`, `ICON_HREF`, `ICON_SCALE`,
+`LABEL_COLOR`, `LABEL_SCALE`, `LINE_COLOR`, `LINE_WIDTH`, `POLY_COLOR`,
+`POLY_FILL`, `POLY_OUTLINE`, `EXTENDED_DATA`. **Every other column becomes an
+`<ExtendedData>` property** (alias = property name) — that's your "variable
+metadata per feature".
+
+The query is run via `DBMS_SQL` with **this schema's privileges** in the
+dispatcher (the requester's context is gone), so only trusted apps may enqueue
+`QUERY` jobs and **all parameters must be binds** (never string-concatenated).
+
+By default a `QUERY` job **streams** (no assets persisted). Pass
+`p_source_mode => 'MATERIALIZE'` to instead write each row into `KML_JOB_ASSETS`
+(via the DML package) and then render — useful when you want the result
+inspectable/retryable or audited. Streaming is the lighter default.
+
+### External ingestion (APEX REST / GeoJSON)
+
+When the features come from *outside* the database (e.g. an APEX RESTful
+service), the client can't supply a query — it pushes geometries. Use an
+**`ASSETS` job** plus `add_features_geojson`, which accepts a GeoJSON
+FeatureCollection (or a single Feature / bare geometry) and bulk-inserts assets
+using the **same mapping contract**: `geometry` → the feature geometry, reserved
+`properties` names → columns, everything else → `<ExtendedData>`.
+
+```sql
+declare
+  l_job number;
+  l_n   number;
+begin
+  l_job := pck_kml_job_api.create_job('External upload', p_output_format => 'KMZ');
+  l_n := pck_kml_job_api.add_features_geojson(l_job, q'[
+    {"type":"FeatureCollection","features":[
+      {"type":"Feature",
+       "geometry":{"type":"Point","coordinates":[13.405,52.52]},
+       "properties":{"NAME":"Berlin","FOLDER_NAME":"Cities","country":"DE"}}
+    ]}]');
+  commit;
+  pck_kml_job_api.submit_job(l_job);
+end;
+/
+```
+
+A typical APEX REST surface:
+
+```
+POST /jobs                 -> create_job  (or create_job_from_query)   -> DRAFT
+POST /jobs/{id}/features   -> add_features_geojson(body)               [ASSETS]
+POST /jobs/{id}/submit     -> submit_job                               -> PENDING
+GET  /jobs/{id}            -> get_status
+GET  /jobs/{id}/result     -> get_kmz / get_kml                        (BLOB/CLOB)
+```
+
+So the **mapping contract and render core are identical** whether features arrive
+as a SQL query (internal) or as GeoJSON (external); only ingestion differs.
 
 ## Geometry & metadata
 

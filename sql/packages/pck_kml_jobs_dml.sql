@@ -20,6 +20,10 @@ as
     p_user_tab        in varchar2 default null,
     p_user_id         in varchar2 default null,
     p_status          in varchar2 default 'DRAFT',
+    p_source_type     in varchar2 default 'ASSETS',
+    p_source_mode     in varchar2 default 'STREAM',
+    p_source_query    in clob     default null,
+    p_source_binds    in clob     default null,
     p_created_by      in varchar2 default null
   ) return number;
 
@@ -57,6 +61,10 @@ as
     p_user_tab        in varchar2 default null,
     p_user_id         in varchar2 default null,
     p_status          in varchar2 default 'DRAFT',
+    p_source_type     in varchar2 default 'ASSETS',
+    p_source_mode     in varchar2 default 'STREAM',
+    p_source_query    in clob     default null,
+    p_source_binds    in clob     default null,
     p_created_by      in varchar2 default null
   ) return number
   is
@@ -64,13 +72,20 @@ as
     l_now timestamp    := systimestamp;
     l_who varchar2(128) := nvl(p_created_by, user);
   begin
+    if upper(p_source_type) = 'QUERY'
+       and (p_source_query is null or dbms_lob.getlength(p_source_query) = 0)
+    then
+      raise_application_error(-20812, 'QUERY job requires a non-empty source_query.');
+    end if;
+
     insert into kml_jobs (
       document_name, description, output_format, output_filename, priority,
-      user_tab, user_id, status,
+      user_tab, user_id, status, source_type, source_mode, source_query, source_binds,
       created_at, created_by, updated_at, updated_by
     ) values (
       p_document_name, p_description, upper(p_output_format), p_output_filename, p_priority,
-      p_user_tab, p_user_id, p_status,
+      p_user_tab, p_user_id, p_status, upper(p_source_type), upper(p_source_mode),
+      p_source_query, p_source_binds,
       l_now, l_who, l_now, l_who
     ) returning job_id into l_id;
 

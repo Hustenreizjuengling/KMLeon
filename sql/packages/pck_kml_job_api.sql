@@ -29,6 +29,32 @@ as
     p_user_id         in varchar2 default null
   ) return number;
 
+  -- Create a self-contained QUERY job in DRAFT status. The SELECT is executed at
+  -- run time and streamed to KML; its column aliases drive the output:
+  --   GEOMETRY (SDO_GEOMETRY) | GEOMETRY_GEOJSON | GEOMETRY_KML  (one of these)
+  --   NAME, DESCRIPTION, FOLDER_NAME, VISIBILITY,
+  --   ICON_HREF, ICON_SCALE, LABEL_COLOR, LABEL_SCALE,
+  --   LINE_COLOR, LINE_WIDTH, POLY_COLOR, POLY_FILL, POLY_OUTLINE, EXTENDED_DATA
+  -- Any other column becomes an <ExtendedData> property (alias = name).
+  -- ORDER BY the folder column if you want <Folder> grouping. Pass parameters via
+  -- p_source_binds (JSON, e.g. '{"region":"DE"}') referenced as :region in the SQL.
+  function create_job_from_query(
+    p_document_name   in varchar2,
+    p_source_query    in clob,
+    p_source_binds    in clob     default null,
+    p_source_mode     in varchar2 default 'STREAM',   -- STREAM | MATERIALIZE
+    p_description     in varchar2 default null,
+    p_output_format   in varchar2 default 'KMZ',
+    p_output_filename in varchar2 default null,
+    p_priority        in number   default 100,
+    p_user_tab        in varchar2 default null,
+    p_user_id         in varchar2 default null
+  ) return number;
+
+  -- Bulk-add features to a job from GeoJSON (FeatureCollection / Feature / bare
+  -- geometry). Mirrors the QUERY alias contract; returns the feature count. No commit.
+  function add_features_geojson(p_job_id in number, p_feature_collection in clob) return number;
+
   -- Supply EXACTLY ONE of p_geometry_sdo / p_geometry_geojson.
   function add_asset(
     p_job_id           in number,
@@ -89,6 +115,42 @@ as
              p_user_tab        => p_user_tab,
              p_user_id         => p_user_id);
   end create_job;
+
+
+  function create_job_from_query(
+    p_document_name   in varchar2,
+    p_source_query    in clob,
+    p_source_binds    in clob     default null,
+    p_source_mode     in varchar2 default 'STREAM',
+    p_description     in varchar2 default null,
+    p_output_format   in varchar2 default 'KMZ',
+    p_output_filename in varchar2 default null,
+    p_priority        in number   default 100,
+    p_user_tab        in varchar2 default null,
+    p_user_id         in varchar2 default null
+  ) return number
+  is
+  begin
+    return pck_kml_jobs_dml.ins(
+             p_document_name   => p_document_name,
+             p_description     => p_description,
+             p_output_format   => p_output_format,
+             p_output_filename => p_output_filename,
+             p_priority        => p_priority,
+             p_user_tab        => p_user_tab,
+             p_user_id         => p_user_id,
+             p_source_type     => 'QUERY',
+             p_source_mode     => p_source_mode,
+             p_source_query    => p_source_query,
+             p_source_binds    => p_source_binds);
+  end create_job_from_query;
+
+
+  function add_features_geojson(p_job_id in number, p_feature_collection in clob) return number
+  is
+  begin
+    return pck_kml_job_assets_dml.add_features_geojson(p_job_id, p_feature_collection);
+  end add_features_geojson;
 
 
   function add_asset(

@@ -14,6 +14,11 @@ create table kml_jobs (
   status            varchar2(20)    default 'DRAFT' not null,
   priority          number          default 100  not null, -- lower = processed first
   output_filename   varchar2(260),                       -- suggested download name
+  --- data source -------------------------------------------------------------
+  source_type       varchar2(10)    default 'ASSETS' not null, -- ASSETS | QUERY
+  source_mode       varchar2(12)    default 'STREAM' not null,  -- QUERY: STREAM | MATERIALIZE
+  source_query      clob,                                -- QUERY: SELECT run at job time
+  source_binds      clob,                                -- QUERY: JSON object of bind values
   --- creator (for explicit ownership / later email notification) -------------
   user_tab          varchar2(128),                       -- source table of the creating user
   user_id           varchar2(128),                       -- creating user's id within user_tab
@@ -33,10 +38,16 @@ create table kml_jobs (
   constraint kml_jobs_format_ck
     check (output_format in ('KML','KMZ')),
   constraint kml_jobs_status_ck
-    check (status in ('DRAFT','PENDING','RUNNING','COMPLETED','FAILED','CANCELLED'))
+    check (status in ('DRAFT','PENDING','RUNNING','COMPLETED','FAILED','CANCELLED')),
+  constraint kml_jobs_source_ck
+    check (source_type in ('ASSETS','QUERY')),
+  constraint kml_jobs_srcmode_ck
+    check (source_mode in ('STREAM','MATERIALIZE'))
 )
-lob (result_kml) store as securefile (enable storage in row)
-lob (result_kmz) store as securefile (disable storage in row);
+lob (result_kml)   store as securefile (enable storage in row)
+lob (result_kmz)   store as securefile (disable storage in row)
+lob (source_query) store as securefile (enable storage in row)
+lob (source_binds) store as securefile (enable storage in row);
 
 -- Dispatcher scans for work by status, ordered by priority then age.
 create index kml_jobs_queue_ix on kml_jobs (status, priority, created_at);
@@ -45,6 +56,10 @@ comment on table  kml_jobs                is 'KMLeon export jobs. One row per re
 comment on column kml_jobs.status         is 'DRAFT -> PENDING (submitted) -> RUNNING -> COMPLETED | FAILED | CANCELLED';
 comment on column kml_jobs.output_format  is 'KML (text result_kml) or KMZ (zipped result_kmz; requires APEX_ZIP).';
 comment on column kml_jobs.priority       is 'Lower value is processed first by the dispatcher.';
+comment on column kml_jobs.source_type    is 'ASSETS = render rows from KML_JOB_ASSETS; QUERY = run source_query at job time.';
+comment on column kml_jobs.source_mode    is 'QUERY jobs: STREAM = render rows directly to KML (no assets); MATERIALIZE = insert rows into KML_JOB_ASSETS first, then render.';
+comment on column kml_jobs.source_query   is 'QUERY jobs: a SELECT whose column aliases drive the output (GEOMETRY/GEOMETRY_GEOJSON/GEOMETRY_KML, NAME, DESCRIPTION, FOLDER_NAME, *_COLOR, ...). Unknown aliases become ExtendedData. Use binds for parameters.';
+comment on column kml_jobs.source_binds   is 'QUERY jobs: optional JSON object {"bind":"value"} bound into source_query.';
 comment on column kml_jobs.user_tab       is 'Name of the source table identifying the creating user (for later notification).';
 comment on column kml_jobs.user_id        is 'Id of the creating user within user_tab.';
 comment on column kml_jobs.result_kml     is 'Generated KML document (populated when output_format = KML).';
