@@ -418,6 +418,47 @@ as
   end close_folders;
 
 
+  --==============================================================================
+  -- Shared styles: dedupe inline <Style> blocks into <Style id> defs + styleUrls
+  --==============================================================================
+
+  -- Per-build registry: maps a <Style> XML block to its assigned id number.
+  type t_style_map is table of pls_integer index by varchar2(32767);
+  g_styles    t_style_map;
+  g_style_seq pls_integer := 0;
+
+  procedure reset_styles is
+  begin
+    g_styles.delete;
+    g_style_seq := 0;
+  end reset_styles;
+
+  -- Register a <Style>...</Style> block and return its shared id (e.g. 'ks3').
+  -- Identical style XML reuses the same id; NULL in -> NULL out.
+  function register_style(p_style_xml in varchar2) return varchar2 is
+  begin
+    if p_style_xml is null then
+      return null;
+    end if;
+    if not g_styles.exists(p_style_xml) then
+      g_style_seq := g_style_seq + 1;
+      g_styles(p_style_xml) := g_style_seq;
+    end if;
+    return 'ks' || g_styles(p_style_xml);
+  end register_style;
+
+  -- Emit every registered style as a <Style id="ks#"> definition (Document header).
+  procedure emit_styles(l_kml in out nocopy clob) is
+    l_key varchar2(32767);
+  begin
+    l_key := g_styles.first;
+    while l_key is not null loop
+      app(l_kml, replace(l_key, '<Style>', '<Style id="ks' || g_styles(l_key) || '">') || chr(10));
+      l_key := g_styles.next(l_key);
+    end loop;
+  end emit_styles;
+
+
   procedure append_placemark(
     l_kml         in out nocopy clob,
     p_name        in varchar2,
@@ -442,7 +483,9 @@ as
       appc(l_kml, l_desc);
       app(l_kml, ']]></description>');
     end if;
-    app(l_kml, p_style);
+    if p_style is not null then
+      app(l_kml, '<styleUrl>#' || register_style(p_style) || '</styleUrl>');
+    end if;
     app(l_kml, p_ext_xml);
     appc(l_kml, p_geom);
     app(l_kml, '</Placemark>' || chr(10));
@@ -782,27 +825,41 @@ as
   -- Document assembly + execution
   --==============================================================================
 
-  function build_assets_document(p_job_id in number, p_count out number) return clob is
-    l_kml clob;
-    l_job kml_jobs%rowtype;
-  begin
-    l_job := pck_kml_jobs_dml.get(p_job_id);
-    dbms_lob.createtemporary(l_kml, true);
-    open_document(l_kml, l_job);
-    render_from_assets(l_kml, p_job_id, p_count);
-    close_document(l_kml);
-    return l_kml;
-  end build_assets_document;
-
-
-  function build_query_document(p_job in kml_jobs%rowtype, p_count out number) return clob is
+  -- Assemble the final document: header -> shared <Style> defs -> body -> footer.
+  -- The body (folders + placemarks) is rendered first into a buffer so the styles
+  -- it registers can be emitted up front; placemarks reference them via styleUrl.
+  function assemble(p_job in kml_jobs%rowtype, p_body in out nocopy clob) return clob is
     l_kml clob;
   begin
     dbms_lob.createtemporary(l_kml, true);
     open_document(l_kml, p_job);
-    run_query(p_job, 'STREAM', l_kml, p_count);
+    emit_styles(l_kml);
+    appc(l_kml, p_body);
     close_document(l_kml);
+    dbms_lob.freetemporary(p_body);
     return l_kml;
+  end assemble;
+
+
+  function build_assets_document(p_job_id in number, p_count out number) return clob is
+    l_body clob;
+    l_job  kml_jobs%rowtype;
+  begin
+    reset_styles;
+    l_job := pck_kml_jobs_dml.get(p_job_id);
+    dbms_lob.createtemporary(l_body, true);
+    render_from_assets(l_body, p_job_id, p_count);
+    return assemble(l_job, l_body);
+  end build_assets_document;
+
+
+  function build_query_document(p_job in kml_jobs%rowtype, p_count out number) return clob is
+    l_body clob;
+  begin
+    reset_styles;
+    dbms_lob.createtemporary(l_body, true);
+    run_query(p_job, 'STREAM', l_body, p_count);
+    return assemble(p_job, l_body);
   end build_query_document;
 
 

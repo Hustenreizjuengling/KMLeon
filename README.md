@@ -244,7 +244,6 @@ See [`docs/data-model.md`](docs/data-model.md) for the full column reference and
 
 ## Roadmap
 
-- Shared `<Style>` de-duplication (`styleUrl`) for large exports.
 - Pure-PL/SQL ZIP fallback so KMZ works without APEX.
 - ORDS/APEX REST handlers and a utPLSQL test suite.
 

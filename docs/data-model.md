@@ -158,8 +158,11 @@ second argument. Store the result directly in the `*_color` columns.
 
 ## Styling model
 
-Styles are emitted **inline** per `<Placemark>` (no shared `<Style>`/`styleUrl`).
-Simple and fully generic; trades file size for simplicity on large exports.
+Identical styles are **deduplicated**: each distinct style is emitted once as a
+`<Style id="ks#">` definition at the top of the `<Document>`, and every placemark
+references it via `<styleUrl>#ks#</styleUrl>`. For large exports where many
+features share styling this makes the output dramatically smaller. Placemarks with
+no style attributes get no `<styleUrl>`.
 
 ## Known limitations / future work
 
@@ -167,7 +170,6 @@ Simple and fully generic; trades file size for simplicity on large exports.
   into the geometry output. They affect **3D viewers only** (Google Earth, Cesium);
   2D viewers ignore them, and `altitude_mode`/`extrude` need Z-bearing geometry to
   be meaningful. `GEOMETRY_KML` passthrough is left untouched (caller-controlled).
-- **Inline styles**: no shared `<Style>` de-duplication yet.
 - **KMZ**: relies on `APEX_ZIP`; swap in a pure-PL/SQL zipper if APEX is absent.
 - **ExtendedData**: values read as strings via `JSON_OBJECT_T`; malformed JSON
   silently omits the block.
