@@ -195,12 +195,21 @@ end;
 A typical APEX REST surface:
 
 ```
-POST /jobs                 -> create_job  (or create_job_from_query)   -> DRAFT
-POST /jobs/{id}/features   -> add_features_geojson(body)               [ASSETS]
-POST /jobs/{id}/submit     -> submit_job                               -> PENDING
-GET  /jobs/{id}            -> get_status
-GET  /jobs/{id}/result     -> get_kmz / get_kml                        (BLOB/CLOB)
+GET    jobs                 list jobs
+POST   jobs                 create an ASSETS job (JSON body)            -> DRAFT
+POST   jobs/{id}/features   add_features_geojson (GeoJSON body)         [ASSETS]
+POST   jobs/{id}/submit     submit_job                                  -> PENDING
+POST   jobs/{id}/run        run synchronously now
+POST   jobs/{id}/cancel     cancel a DRAFT/PENDING job
+GET    jobs/{id}            status + metadata
+GET    jobs/{id}/result     download the KMZ/KML
 ```
+
+A **ready-to-run ORDS script** that creates exactly these endpoints (via the ORDS
+PL/SQL API — no manual clicking) lives at
+[`sql/ords/010_rest_api.sql`](sql/ords/010_rest_api.sql). Run it in **APEX → SQL
+Workshop → SQL Scripts**. The `QUERY` source is deliberately **not** exposed over
+REST; secure the module before using it (see the script's header).
 </details>
 
 ## Feature mapping contract
