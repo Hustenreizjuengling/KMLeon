@@ -244,8 +244,12 @@ See [`docs/data-model.md`](docs/data-model.md) for the full column reference and
 
 ## Roadmap
 
-- Pure-PL/SQL ZIP fallback so KMZ works without APEX.
-- ORDS/APEX REST handlers and a utPLSQL test suite.
+- Email notification to a job's creator (`user_tab` / `user_id`) on completion.
+- `<StyleMap>` (normal/highlight) styles.
+- A utPLSQL test suite.
+
+*(KMZ uses `APEX_ZIP`; a pure-PL/SQL ZIP fallback was intentionally dropped — APEX
+is assumed available in the target environment.)*
 
 ## License
 
