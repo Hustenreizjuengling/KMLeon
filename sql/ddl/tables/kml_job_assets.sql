@@ -12,7 +12,7 @@ create table kml_job_assets (
                      constraint kml_job_assets_pk primary key,
   job_id          number          not null,
   --- placement / grouping -----------------------------------------------------
-  folder_name     varchar2(1000),                  -- optional single-level <Folder>
+  folder_name     varchar2(1000),                  -- optional <Folder> path; '/' nests
   display_order   number          default 0 not null,
   --- variable metadata (shown / stored on the feature) ------------------------
   name            varchar2(400),                   -- <Placemark><name>
@@ -57,7 +57,7 @@ create index kml_job_assets_job_ix
   on kml_job_assets (job_id, folder_name, display_order, asset_id);
 
 comment on table  kml_job_assets                  is 'Generic map features for a job. The consuming app fills these; KMLeon renders them. DML only via PCK_KML_JOB_ASSETS_DML.';
-comment on column kml_job_assets.folder_name      is 'Optional single-level KML <Folder> grouping. NULL = directly under <Document>.';
+comment on column kml_job_assets.folder_name      is 'Optional KML <Folder> path; ''/'' separates levels (e.g. Europe/Germany) for nested folders. NULL = directly under <Document>.';
 comment on column kml_job_assets.geometry_sdo     is 'Native SDO_GEOMETRY (preferred). Converted to KML via SDO_UTIL.TO_KMLGEOMETRY.';
 comment on column kml_job_assets.geometry_geojson is 'GeoJSON geometry/feature (used when geometry_sdo is NULL). Converted via SDO_UTIL.FROM_GEOJSON.';
 comment on column kml_job_assets.extended_data    is 'JSON object of key/value pairs rendered as <ExtendedData> (visible in the feature balloon).';

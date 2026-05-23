@@ -229,7 +229,8 @@ The internal `QUERY` source (SQL column aliases) and the external GeoJSON source
 - Geometry is **lon/lat** (X = longitude), SRID **4326**.
 - **Colors** are KML `aabbggrr` hex — convert from `RRGGBB` with
   `PCK_KML_ENGINE.rgba_to_kml('FF0000')` (+ optional 0–255 alpha).
-- `FOLDER_NAME` groups features into a single-level `<Folder>` (order by it for grouping).
+- `FOLDER_NAME` groups features into `<Folder>`s; use `/` to nest
+  (e.g. `Europe/Germany`). Order rows by it so groups stay contiguous.
 
 See [`docs/data-model.md`](docs/data-model.md) for the full column reference and limitations.
 
@@ -243,7 +244,6 @@ See [`docs/data-model.md`](docs/data-model.md) for the full column reference and
 
 ## Roadmap
 
-- Nested `<Folder>` hierarchies.
 - Shared `<Style>` de-duplication (`styleUrl`) for large exports.
 - Pure-PL/SQL ZIP fallback so KMZ works without APEX.
 - ORDS/APEX REST handlers and a utPLSQL test suite.

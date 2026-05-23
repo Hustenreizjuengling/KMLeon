@@ -47,7 +47,7 @@ One row per map feature. `job_id` → `KML_JOBS` with `ON DELETE CASCADE`.
 |---|---|---|
 | `asset_id` | NUMBER (identity, PK) | |
 | `job_id` | NUMBER (FK) | |
-| `folder_name` | VARCHAR2(1000) | Single-level `<Folder>`; `NULL` = under `<Document>`. |
+| `folder_name` | VARCHAR2(1000) | `<Folder>` path; `/` nests (e.g. `Europe/Germany`). `NULL` = under `<Document>`. |
 | `display_order` | NUMBER | Render order within a folder (default 0). |
 | `name` | VARCHAR2(400) | `<Placemark><name>`. |
 | `description` | CLOB | `<description>`; HTML allowed, CDATA-wrapped. |
@@ -114,7 +114,8 @@ choose this when you want the rendered features persisted/inspectable.
 Notes:
 
 - Provide exactly one geometry alias per row.
-- `ORDER BY` the folder column if you want contiguous `<Folder>` grouping.
+- `ORDER BY` the folder column if you want contiguous `<Folder>` grouping; use
+  `/` in the value to nest (e.g. `Europe/Germany`).
 - Parameters must be **binds** referenced as `:name`, supplied via `source_binds`
   JSON; bind values are passed as strings.
 - Supported column data types: VARCHAR2/CHAR, NUMBER, DATE, TIMESTAMP,
@@ -166,7 +167,6 @@ Simple and fully generic; trades file size for simplicity on large exports.
   into the geometry output. They affect **3D viewers only** (Google Earth, Cesium);
   2D viewers ignore them, and `altitude_mode`/`extrude` need Z-bearing geometry to
   be meaningful. `GEOMETRY_KML` passthrough is left untouched (caller-controlled).
-- **Folders**: single level only.
 - **Inline styles**: no shared `<Style>` de-duplication yet.
 - **KMZ**: relies on `APEX_ZIP`; swap in a pure-PL/SQL zipper if APEX is absent.
 - **ExtendedData**: values read as strings via `JSON_OBJECT_T`; malformed JSON

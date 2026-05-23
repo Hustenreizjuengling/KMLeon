@@ -352,27 +352,70 @@ as
   end close_document;
 
 
-  -- Open/close <Folder> wrappers as the folder value changes between rows.
-  -- Rows must already be ordered by folder for grouping to be contiguous.
+  -- A folder path split into its segments (e.g. 'Europe/Germany' -> Europe, Germany).
+  type t_seg_tab is table of varchar2(1000);
+
+  -- Split a '/'-separated folder path into trimmed, non-empty segments.
+  function split_path(p_path in varchar2) return t_seg_tab is
+    l_segs t_seg_tab := t_seg_tab();
+    l_seg  varchar2(1000);
+  begin
+    if p_path is null then
+      return l_segs;
+    end if;
+    for i in 1 .. regexp_count(p_path, '[^/]+') loop
+      l_seg := trim(regexp_substr(p_path, '[^/]+', 1, i));
+      if l_seg is not null then
+        l_segs.extend;
+        l_segs(l_segs.count) := l_seg;
+      end if;
+    end loop;
+    return l_segs;
+  end split_path;
+
+  -- Adjust the open <Folder> stack to match p_path: close folders no longer on the
+  -- path, open the new ones. Builds nested folders ('A/B/C'). Rows must be ordered
+  -- by the folder path so groups are contiguous and parents precede their children.
   procedure switch_folder(
     l_kml    in out nocopy clob,
-    io_open  in out varchar2,
-    io_cur   in out varchar2,
-    p_folder in varchar2
+    io_open  in out nocopy t_seg_tab,   -- currently open segments (top = last)
+    p_path   in varchar2
   ) is
+    l_new    t_seg_tab := split_path(p_path);
+    l_common pls_integer := 0;
   begin
-    if nvl(p_folder, '##NULL##') <> nvl(io_cur, '##NULL##') then
-      if io_open = 'Y' then
-        app(l_kml, '</Folder>' || chr(10));
-        io_open := 'N';
-      end if;
-      if p_folder is not null then
-        app(l_kml, '<Folder><name>' || escape_xml(p_folder) || '</name>' || chr(10));
-        io_open := 'Y';
-      end if;
-      io_cur := p_folder;
+    -- length of the shared prefix between the open stack and the new path
+    while l_common < io_open.count
+      and l_common < l_new.count
+      and io_open(l_common + 1) = l_new(l_common + 1)
+    loop
+      l_common := l_common + 1;
+    end loop;
+
+    -- close folders below the shared prefix (deepest first)
+    for i in reverse l_common + 1 .. io_open.count loop
+      app(l_kml, '</Folder>' || chr(10));
+    end loop;
+    if io_open.count > l_common then
+      io_open.trim(io_open.count - l_common);
     end if;
+
+    -- open the new folders beyond the shared prefix
+    for i in l_common + 1 .. l_new.count loop
+      app(l_kml, '<Folder><name>' || escape_xml(l_new(i)) || '</name>' || chr(10));
+      io_open.extend;
+      io_open(io_open.count) := l_new(i);
+    end loop;
   end switch_folder;
+
+  -- Close every still-open folder (call once after the render loop).
+  procedure close_folders(l_kml in out nocopy clob, io_open in out nocopy t_seg_tab) is
+  begin
+    for i in reverse 1 .. io_open.count loop
+      app(l_kml, '</Folder>' || chr(10));
+    end loop;
+    io_open.delete;
+  end close_folders;
 
 
   procedure append_placemark(
@@ -411,8 +454,7 @@ as
   --==============================================================================
 
   procedure render_from_assets(l_kml in out nocopy clob, p_job_id in number, p_count out number) is
-    l_open varchar2(1)    := 'N';
-    l_cur  varchar2(1000) := '##INIT##';
+    l_open t_seg_tab := t_seg_tab();   -- open folder path stack
     l_geom clob;
   begin
     p_count := 0;
@@ -426,7 +468,7 @@ as
       l_geom := geometry_to_kml(r.geometry_sdo, r.geometry_geojson,
                                 r.altitude_mode, r.extrude, r.tessellate);
       if l_geom is not null and dbms_lob.getlength(l_geom) > 0 then
-        switch_folder(l_kml, l_open, l_cur, r.folder_name);
+        switch_folder(l_kml, l_open, r.folder_name);
         append_placemark(l_kml, r.name, r.description, build_extended_data(r.extended_data),
                          build_style(r), l_geom, r.visibility);
         p_count := p_count + 1;
@@ -435,9 +477,7 @@ as
                          'asset ' || r.asset_id || ' skipped (no usable geometry)', p_job_id);
       end if;
     end loop;
-    if l_open = 'Y' then
-      app(l_kml, '</Folder>' || chr(10));
-    end if;
+    close_folders(l_kml, l_open);
   end render_from_assets;
 
 
@@ -457,8 +497,7 @@ as
     l_cols   number;
     l_desc_t dbms_sql.desc_tab3;
     l_exec   integer;
-    l_open   varchar2(1)    := 'N';
-    l_curf   varchar2(1000) := '##INIT##';
+    l_open   t_seg_tab := t_seg_tab();   -- open folder path stack (STREAM only)
 
     type t_meta is record (role varchar2(20), fetch varchar2(5), alias varchar2(128));
     type t_meta_tab is table of t_meta index by pls_integer;
@@ -713,7 +752,7 @@ as
 
         if l_geom is not null and dbms_lob.getlength(l_geom) > 0 then
           l_ext_xml := ext_obj_to_xml(l_ext_obj);   -- build directly; no JSON re-parse
-          switch_folder(l_kml, l_open, l_curf, l_folder);
+          switch_folder(l_kml, l_open, l_folder);
           append_placemark(l_kml, l_name, l_descr, l_ext_xml,
                            build_style_scalar(l_icon_href, l_icon_scale, l_label_color, l_label_scale,
                                               l_line_color, l_line_width,
@@ -726,8 +765,8 @@ as
       end if;
     end loop;
 
-    if p_mode != 'MATERIALIZE' and l_open = 'Y' then
-      app(l_kml, '</Folder>' || chr(10));
+    if p_mode != 'MATERIALIZE' then
+      close_folders(l_kml, l_open);
     end if;
     dbms_sql.close_cursor(l_c);
   exception

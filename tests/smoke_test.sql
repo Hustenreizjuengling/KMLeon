@@ -25,7 +25,7 @@ begin
            p_job_id           => l_job,
            p_geometry_geojson => to_clob('{"type":"Point","coordinates":[13.4050,52.5200]}'),
            p_name             => 'Berlin',
-           p_folder_name      => 'Cities',
+           p_folder_name      => 'Cities/Germany',     -- nested: Cities > Germany
            p_icon_scale       => 1.2,
            p_label_color      => pck_kml_engine.rgba_to_kml('FFFFFF'),
            p_extended_data    => to_clob('{"country":"DE","population":"3677000"}'));
@@ -59,7 +59,7 @@ begin
            p_job_id           => l_job,
            p_geometry_geojson => to_clob('{"type":"Point","coordinates":[13.4094,52.5219,150]}'),
            p_name             => 'Tower',
-           p_folder_name      => 'Cities',
+           p_folder_name      => 'Cities/Germany',     -- same nested folder as Berlin
            p_altitude_mode    => 'relativeToGround',
            p_extrude          => 'Y');
 
