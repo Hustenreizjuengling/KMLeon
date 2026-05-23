@@ -116,8 +116,8 @@ Notes:
 - `ORDER BY` the folder column if you want contiguous `<Folder>` grouping.
 - Parameters must be **binds** referenced as `:name`, supplied via `source_binds`
   JSON; bind values are passed as strings.
-- Supported column data types: VARCHAR2/CHAR, NUMBER, DATE, CLOB, and
-  `SDO_GEOMETRY`. CAST anything else (e.g. TIMESTAMP) in the SELECT.
+- Supported column data types: VARCHAR2/CHAR, NUMBER, DATE, TIMESTAMP,
+  TIMESTAMP WITH TIME ZONE, CLOB, and `SDO_GEOMETRY`. CAST anything else in the SELECT.
 - **Security:** the query runs as the KMLeon (definer) schema in the dispatcher;
   only trusted callers should enqueue `QUERY` jobs.
 
@@ -144,7 +144,7 @@ render core, only the ingestion channel differs.
 - Coordinates are **lon/lat** (longitude = X), SRID **4326**.
 - `geometry_sdo` is converted with `SDO_UTIL.TO_KMLGEOMETRY`; `geometry_geojson`
   is first converted with `SDO_UTIL.FROM_GEOJSON`. **Oracle Spatial/Locator is
-  required.**
+  required, and `FROM_GEOJSON` is a 19c feature — hence KMLeon's 19c floor.**
 - Supported geometry types are whatever `SDO_UTIL.TO_KMLGEOMETRY` supports
   (points, lines, polygons, and their multi-/collection forms).
 
@@ -166,5 +166,5 @@ Simple and fully generic; trades file size for simplicity on large exports.
 - **Folders**: single level only.
 - **Inline styles**: no shared `<Style>` de-duplication yet.
 - **KMZ**: relies on `APEX_ZIP`; swap in a pure-PL/SQL zipper if APEX is absent.
-- **ExtendedData**: values read as strings via `JSON_OBJECT_T` (12.2+); malformed
-  JSON or missing JSON support silently omits the block.
+- **ExtendedData**: values read as strings via `JSON_OBJECT_T`; malformed JSON
+  silently omits the block.

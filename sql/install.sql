@@ -5,7 +5,8 @@
 --   sqlplus kmleon/****@db @install.sql
 --   -- or in SQLcl:  sql kmleon/****@db @install.sql
 --
--- Requires Oracle 12.2+ with Spatial/Locator (SDO_UTIL). APEX (APEX_ZIP) is only
+-- Requires Oracle 19c with Spatial/Locator (SDO_UTIL); GeoJSON input uses
+-- SDO_UTIL.FROM_GEOJSON (19c). APEX (APEX_ZIP) is only
 -- needed for KMZ output. Re-running on an existing install: @uninstall.sql first
 -- (table DDL is not CREATE OR REPLACE).
 --------------------------------------------------------------------------------

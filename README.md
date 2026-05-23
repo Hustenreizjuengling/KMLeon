@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Oracle-12.2%2B-F80000?logo=oracle&logoColor=white" alt="Oracle 12.2+">
+  <img src="https://img.shields.io/badge/Oracle-19c-F80000?logo=oracle&logoColor=white" alt="Oracle 19c">
   <img src="https://img.shields.io/badge/PL%2FSQL-pure-1f6e4f" alt="Pure PL/SQL">
   <img src="https://img.shields.io/badge/runtime-none-2b6cb0" alt="No external runtime">
   <img src="https://img.shields.io/badge/output-KML%20%2F%20KMZ-22d3ee" alt="KML / KMZ">
@@ -76,8 +76,10 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 
 ## Requirements
 
-- **Oracle Database 12.2+** (19c recommended) — identity columns, native `JSON_OBJECT_T`.
-- **Oracle Spatial / Locator** (`SDO_UTIL`) — geometry conversion (`FROM_GEOJSON`, `TO_KMLGEOMETRY`).
+- **Oracle Database 19c** — identity columns, native `JSON_OBJECT_T`/`JSON_ELEMENT_T`,
+  and `SDO_UTIL.FROM_GEOJSON` (a 19c addition, hence the floor).
+- **Oracle Spatial / Locator** (`SDO_UTIL`) — geometry conversion: `TO_KMLGEOMETRY`
+  (KML out) and `FROM_GEOJSON` (GeoJSON in, **19c**).
 - **APEX_ZIP** (ships with Oracle APEX) — only for `KMZ` output. Without it, `KML` still
   works and KMZ jobs fail with a clear message.
 

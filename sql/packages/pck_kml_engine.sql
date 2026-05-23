@@ -14,6 +14,7 @@
 --
 -- Reads tables directly (SELECT is allowed); ALL writes go through DML packages.
 -- Geometry is converted natively via SDO_UTIL (requires Oracle Spatial/Locator).
+-- Minimum Oracle 19c: SDO_UTIL.FROM_GEOJSON is a 19c feature.
 --
 -- SECURITY: a QUERY job's source_query is dynamic SQL executed in the dispatcher
 -- with THIS schema's (definer) privileges -- the requester's context is gone.
@@ -53,6 +54,7 @@ as
   --==============================================================================
 
   function escape_xml(p_text in varchar2) return varchar2 is
+    -- no PRAGMA UDF: this is called in tight PL/SQL loops, not from SQL
   begin
     return replace(replace(replace(replace(replace(
              p_text, '&', '&amp;'), '<', '&lt;'), '>', '&gt;'),
@@ -66,6 +68,7 @@ as
   end num;
 
   function rgba_to_kml(p_rgb_hex in varchar2, p_alpha in number default 255) return varchar2 is
+    pragma udf;   -- optimize use from SQL
     l_hex varchar2(8);
     l_a   varchar2(2);
   begin
@@ -369,6 +372,8 @@ as
     l_vc   varchar2(4000);
     l_num  number;
     l_dat  date;
+    l_ts   timestamp;
+    l_tstz timestamp with time zone;
     l_clob clob;
     l_sdo  sdo_geometry;
 
@@ -424,6 +429,8 @@ as
                when 'VC'   then l_vc
                when 'NUM'  then num(l_num)
                when 'DATE' then to_char(l_dat, 'YYYY-MM-DD"T"HH24:MI:SS')
+               when 'TS'   then to_char(l_ts,   'YYYY-MM-DD"T"HH24:MI:SS.FF3')
+               when 'TSTZ' then to_char(l_tstz, 'YYYY-MM-DD"T"HH24:MI:SS.FF3TZH:TZM')
                when 'CLOB' then dbms_lob.substr(l_clob, 4000, 1)
                else null
              end;
@@ -440,10 +447,9 @@ as
 
     function as_clob(p_i in pls_integer) return clob is
     begin
-      return case l_meta(p_i).fetch
-               when 'CLOB' then l_clob
-               when 'VC'   then to_clob(l_vc)
-               else null
+      -- CLOB columns pass through; anything else is rendered to text then promoted
+      return case when l_meta(p_i).fetch = 'CLOB' then l_clob
+                  else to_clob(as_vc(p_i))
              end;
     end as_clob;
 
@@ -487,13 +493,17 @@ as
           l_m.fetch := 'NUM';  dbms_sql.define_column(l_c, i, l_num);
         elsif l_desc_t(i).col_type = 12 then            -- DATE
           l_m.fetch := 'DATE'; dbms_sql.define_column(l_c, i, l_dat);
+        elsif l_desc_t(i).col_type = 180 then           -- TIMESTAMP
+          l_m.fetch := 'TS';   dbms_sql.define_column(l_c, i, l_ts);
+        elsif l_desc_t(i).col_type = 181 then           -- TIMESTAMP WITH TIME ZONE
+          l_m.fetch := 'TSTZ'; dbms_sql.define_column(l_c, i, l_tstz);
         elsif l_desc_t(i).col_type in (1, 96) then      -- VARCHAR2 / CHAR
           l_m.fetch := 'VC';   dbms_sql.define_column(l_c, i, l_vc, 4000);
         else
           l_m.fetch := 'SKIP';
           pck_kml_log.warn(c_pkg, 'run_query',
             'column "' || l_desc_t(i).col_name || '" type ' || l_desc_t(i).col_type
-            || ' unsupported; CAST to varchar2/number/date in the query', p_job.job_id);
+            || ' unsupported; CAST to varchar2/number/date/timestamp in the query', p_job.job_id);
         end if;
         l_meta(i) := l_m;
       end;
@@ -518,6 +528,8 @@ as
             when 'CLOB' then dbms_sql.column_value(l_c, i, l_clob);
             when 'NUM'  then dbms_sql.column_value(l_c, i, l_num);
             when 'DATE' then dbms_sql.column_value(l_c, i, l_dat);
+            when 'TS'   then dbms_sql.column_value(l_c, i, l_ts);
+            when 'TSTZ' then dbms_sql.column_value(l_c, i, l_tstz);
             else             dbms_sql.column_value(l_c, i, l_vc);
           end case;
 
