@@ -22,9 +22,12 @@
 -- SECURITY (READ THIS)
 --   * The QUERY job source (arbitrary SQL run as this schema) is intentionally
 --     NOT exposed here -- create QUERY jobs only from inside the database.
---   * These endpoints WRITE data and run jobs. Protect them: see the optional
---     "PROTECT THE MODULE" block at the bottom (ORDS privilege), or front them
---     with OAuth2 / first-party auth. Do not leave a public write API open.
+--   * The module is shipped PUBLISHED and UNPROTECTED on purpose, so you can adapt
+--     authentication to your own environment. These endpoints WRITE data and run
+--     jobs -- before any non-trivial use, protect them: uncomment the "PROTECT THE
+--     MODULE" block at the bottom (ORDS privilege), and/or front ORDS with
+--     OAuth2 / first-party auth, HTTPS, and (optionally) CORS via
+--     ORDS.SET_MODULE_ORIGINS_ALLOWED. Do not expose a public write API as-is.
 --------------------------------------------------------------------------------
 
 set define off
@@ -94,19 +97,23 @@ begin
         l_in  := json_object_t.parse(:body_text);
         l_doc := l_in.get_string('document_name');
         if l_doc is null then
-          raise_application_error(-20830, 'document_name is required');
+          :status_code := 400;
+          owa_util.mime_header('application/json');
+          htp.p('{"error":"document_name is required"}');
+        else
+          l_id := pck_kml_job_api.create_job(
+                    p_document_name   => l_doc,
+                    p_description     => l_in.get_string('description'),
+                    p_output_format   => nvl(l_in.get_string('output_format'), 'KMZ'),
+                    p_output_filename => l_in.get_string('output_filename'),
+                    p_priority        => nvl(l_in.get_number('priority'), 100),
+                    p_user_tab        => l_in.get_string('user_tab'),
+                    p_user_id         => l_in.get_string('user_id'));
+          commit;
+          :status_code := 201;
+          owa_util.mime_header('application/json');
+          htp.p('{"job_id":' || l_id || ',"status":"DRAFT"}');
         end if;
-        l_id := pck_kml_job_api.create_job(
-                  p_document_name   => l_doc,
-                  p_description     => l_in.get_string('description'),
-                  p_output_format   => nvl(l_in.get_string('output_format'), 'KMZ'),
-                  p_output_filename => l_in.get_string('output_filename'),
-                  p_priority        => nvl(l_in.get_number('priority'), 100),
-                  p_user_tab        => l_in.get_string('user_tab'),
-                  p_user_id         => l_in.get_string('user_id'));
-        commit;
-        owa_util.mime_header('application/json');
-        htp.p('{"job_id":' || l_id || ',"status":"DRAFT"}');
       end;
     ~');
 
@@ -142,6 +149,7 @@ begin
         owa_util.mime_header('application/json');
         htp.p(l_json);
       exception when no_data_found then
+        :status_code := 404;
         owa_util.mime_header('application/json');
         htp.p('{"error":"job not found"}');
       end;
@@ -180,6 +188,15 @@ begin
         pck_kml_job_api.submit_job(to_number(:id));
         owa_util.mime_header('application/json');
         htp.p('{"job_id":' || :id || ',"status":"PENDING"}');
+      exception
+        when others then
+          if sqlcode = -20810 then            -- not in DRAFT state
+            :status_code := 409;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job cannot be submitted in its current state"}');
+          else
+            raise;
+          end if;
       end;
     ~');
 
@@ -213,56 +230,37 @@ begin
         pck_kml_job_api.cancel_job(to_number(:id));
         owa_util.mime_header('application/json');
         htp.p('{"job_id":' || :id || ',"status":"CANCELLED"}');
+      exception
+        when others then
+          if sqlcode = -20811 then            -- not cancellable (already running/finished)
+            :status_code := 409;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job cannot be cancelled in its current state"}');
+          else
+            raise;
+          end if;
       end;
     ~');
 
   ----------------------------------------------------------------- jobs/:id/result
+  -- Download the generated KMZ/KML. Uses source_type_media (the documented pattern
+  -- for GET binary/text downloads): the query returns the MIME type first and the
+  -- LOB second; ORDS streams it and returns 404 automatically when no row matches.
+  -- Only COMPLETED jobs match, so pending/failed/unknown ids yield 404.
   ords.define_template(p_module_name => 'kmleon.v1', p_pattern => 'jobs/:id/result');
   ords.define_handler(
     p_module_name => 'kmleon.v1',
     p_pattern     => 'jobs/:id/result',
     p_method      => 'GET',
-    p_source_type => ords.source_type_plsql,
+    p_source_type => ords.source_type_media,
     p_source      => q'~
-      declare
-        l_fmt    kml_jobs.output_format%type;
-        l_status kml_jobs.status%type;
-        l_kmz    blob;
-        l_kml    clob;
-        l_blob   blob;
-        l_fname  varchar2(400);
-        l_dst    integer := 1;
-        l_src    integer := 1;
-        l_ctx    integer := dbms_lob.default_lang_ctx;
-        l_w      integer;
-      begin
-        select output_format, status, result_kmz, result_kml,
-               nvl(output_filename, 'kmleon_' || job_id)
-          into l_fmt, l_status, l_kmz, l_kml, l_fname
-          from kml_jobs
-         where job_id = to_number(:id);
-
-        if l_status != 'COMPLETED' then
-          owa_util.mime_header('application/json');
-          htp.p('{"error":"job not completed","status":"' || l_status || '"}');
-        elsif l_fmt = 'KMZ' then
-          owa_util.mime_header('application/vnd.google-earth.kmz', false);
-          htp.p('Content-Disposition: attachment; filename="' || l_fname || '.kmz"');
-          owa_util.http_header_close;
-          wpg_docload.download_file(l_kmz);
-        else
-          dbms_lob.createtemporary(l_blob, true);
-          dbms_lob.converttoblob(l_blob, l_kml, dbms_lob.lobmaxsize, l_dst, l_src,
-                                 nls_charset_id('AL32UTF8'), l_ctx, l_w);
-          owa_util.mime_header('application/vnd.google-earth.kml+xml', false);
-          htp.p('Content-Disposition: attachment; filename="' || l_fname || '.kml"');
-          owa_util.http_header_close;
-          wpg_docload.download_file(l_blob);
-        end if;
-      exception when no_data_found then
-        owa_util.mime_header('application/json');
-        htp.p('{"error":"job not found"}');
-      end;
+      select case when output_format = 'KMZ' then 'application/vnd.google-earth.kmz'
+                  else 'application/vnd.google-earth.kml+xml' end as content_type,
+             case when output_format = 'KMZ' then result_kmz
+                  else pck_kml_engine.clob_to_blob(result_kml) end as media_resource
+        from kml_jobs
+       where job_id = to_number(:id)
+         and status = 'COMPLETED'
     ~');
 
   commit;

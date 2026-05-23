@@ -43,6 +43,10 @@ as
   -- Helpers (public for reuse / testing).
   function escape_xml(p_text in varchar2) return varchar2;
   function rgba_to_kml(p_rgb_hex in varchar2, p_alpha in number default 255) return varchar2;
+
+  -- UTF-8 CLOB -> BLOB. Lives here (APEX-free) so the ORDS download handler can
+  -- serve KML results without depending on PCK_KML_KMZ (which needs APEX_ZIP).
+  function clob_to_blob(p_clob in clob) return blob;
 end pck_kml_engine;
 /
 
@@ -106,6 +110,30 @@ as
       pck_kml_log.warn(c_pkg, 'geometry_to_kml', sqlerrm);
       return null;
   end geometry_to_kml;
+
+
+  function clob_to_blob(p_clob in clob) return blob is
+    l_blob         blob;
+    l_dest_offset  integer := 1;
+    l_src_offset   integer := 1;
+    l_lang_context integer := dbms_lob.default_lang_ctx;
+    l_warning      integer;
+  begin
+    if p_clob is null then
+      return null;
+    end if;
+    dbms_lob.createtemporary(l_blob, true);
+    dbms_lob.converttoblob(
+      dest_lob     => l_blob,
+      src_clob     => p_clob,
+      amount       => dbms_lob.lobmaxsize,
+      dest_offset  => l_dest_offset,
+      src_offset   => l_src_offset,
+      blob_csid    => nls_charset_id('AL32UTF8'),
+      lang_context => l_lang_context,
+      warning      => l_warning);
+    return l_blob;
+  end clob_to_blob;
 
 
   --==============================================================================
@@ -191,29 +219,59 @@ as
   end build_style;
 
 
-  -- Render a JSON object as a full <ExtendedData> block (or NULL). Best-effort.
-  function build_extended_data(p_json in clob) return varchar2 is
-    l_obj  json_object_t;
+  -- Render a JSON object (already parsed) as a full <ExtendedData> block (or NULL).
+  -- Best-effort and self-contained: each value is coerced to text (string or
+  -- number) and the function never propagates an exception -- a single odd value
+  -- must not drop the whole block or fail the caller (e.g. a streaming job).
+  function ext_obj_to_xml(p_obj in json_object_t) return varchar2 is
     l_keys json_key_list;
     l_out  varchar2(32767);
+    l_val  varchar2(32767);
   begin
-    if p_json is null or dbms_lob.getlength(p_json) = 0 then
+    if p_obj is null then
       return null;
     end if;
-    l_obj  := json_object_t.parse(p_json);
-    l_keys := l_obj.get_keys;
+    l_keys := p_obj.get_keys;
     if l_keys.count = 0 then
       return null;
     end if;
     l_out := '<ExtendedData>';
     for i in 1 .. l_keys.count loop
+      -- string values via get_string; fall back to numeric (NLS-safe via num)
+      begin
+        l_val := p_obj.get_string(l_keys(i));
+      exception when others then
+        l_val := null;
+      end;
+      if l_val is null then
+        begin
+          l_val := num(p_obj.get_number(l_keys(i)));
+        exception when others then
+          l_val := null;
+        end;
+      end if;
       l_out := l_out
             || '<Data name="' || escape_xml(l_keys(i)) || '">'
-            || '<value>' || escape_xml(l_obj.get_string(l_keys(i))) || '</value></Data>';
+            || '<value>' || escape_xml(l_val) || '</value></Data>';
     end loop;
     return l_out || '</ExtendedData>';
   exception
     when others then
+      return null;
+  end ext_obj_to_xml;
+
+
+  -- Render a JSON string as a full <ExtendedData> block (or NULL). Best-effort:
+  -- malformed JSON degrades to NULL (logged at debug) rather than throwing.
+  function build_extended_data(p_json in clob) return varchar2 is
+  begin
+    if p_json is null or dbms_lob.getlength(p_json) = 0 then
+      return null;
+    end if;
+    return ext_obj_to_xml(json_object_t.parse(p_json));
+  exception
+    when others then
+      pck_kml_log.debug(c_pkg, 'build_extended_data', 'invalid ExtendedData JSON ignored: ' || sqlerrm);
       return null;
   end build_extended_data;
 
@@ -574,12 +632,11 @@ as
         end if;
       end loop;
 
-      l_ext_text := case when l_ext_obj.get_size > 0 then l_ext_obj.to_clob end;
-
       if p_mode = 'MATERIALIZE' then
         if l_geom_sdo is not null
            or (l_geom_geojson is not null and dbms_lob.getlength(l_geom_geojson) > 0)
         then
+          l_ext_text := case when l_ext_obj.get_size > 0 then l_ext_obj.to_clob end;
           l_dummy := pck_kml_job_assets_dml.ins(
             p_job_id           => p_job.job_id,
             p_geometry_sdo     => l_geom_sdo,
@@ -617,7 +674,7 @@ as
         end if;
 
         if l_geom is not null and dbms_lob.getlength(l_geom) > 0 then
-          l_ext_xml := build_extended_data(l_ext_text);
+          l_ext_xml := ext_obj_to_xml(l_ext_obj);   -- build directly; no JSON re-parse
           switch_folder(l_kml, l_open, l_curf, l_folder);
           append_placemark(l_kml, l_name, l_descr, l_ext_xml,
                            build_style_scalar(l_icon_href, l_icon_scale, l_label_color, l_label_scale,
