@@ -179,14 +179,22 @@ as
     if p_feature_collection is null or dbms_lob.getlength(p_feature_collection) = 0 then
       return 0;
     end if;
-    l_root := json_object_t.parse(p_feature_collection);
 
-    if l_root.has('features') then
-      l_feats := l_root.get_array('features');
-    else
-      l_feats := json_array_t();      -- a single Feature or a bare geometry
-      l_feats.append(l_root);
-    end if;
+    -- Parse defensively: malformed input must surface as a clean error, not a
+    -- raw ORA-40441 that rolls back the caller's transaction.
+    begin
+      l_root := json_object_t.parse(p_feature_collection);
+      if l_root.has('features') then
+        l_feats := l_root.get_array('features');   -- raises if 'features' is not an array
+      else
+        l_feats := json_array_t();                 -- a single Feature or a bare geometry
+        l_feats.append(l_root);
+      end if;
+    exception
+      when others then
+        pck_kml_log.warn(c_pkg, 'add_features_geojson', 'invalid GeoJSON: ' || sqlerrm, p_job_id);
+        raise_application_error(-20821, 'Invalid GeoJSON payload.');
+    end;
 
     for i in 0 .. l_feats.get_size - 1 loop
       l_el := l_feats.get(i);
@@ -219,7 +227,12 @@ as
             for k in 1 .. l_keys.count loop
               case prop_role(l_keys(k))
                 when 'NAME'          then l_name         := pstr(l_props, l_keys(k));
-                when 'DESCRIPTION'   then l_descr        := to_clob(pstr(l_props, l_keys(k)));
+                when 'DESCRIPTION'   then
+                  begin
+                    l_descr := l_props.get_clob(l_keys(k));         -- full CLOB, no 32k truncation
+                  exception when others then
+                    l_descr := to_clob(pstr(l_props, l_keys(k)));
+                  end;
                 when 'FOLDER_NAME'   then l_folder       := pstr(l_props, l_keys(k));
                 when 'VISIBILITY'    then l_vis          := nvl(upper(substr(pstr(l_props, l_keys(k)), 1, 1)), 'Y');
                 when 'DISPLAY_ORDER' then l_disp         := nvl(pnum(l_props, l_keys(k)), 0);

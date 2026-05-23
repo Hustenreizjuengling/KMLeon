@@ -66,6 +66,12 @@ as
     dbms_lob.converttoblob(l_blob, p_clob, dbms_lob.lobmaxsize, l_dest_offset,
                            l_src_offset, nls_charset_id('AL32UTF8'), l_lang_context, l_warning);
     return l_blob;
+  exception
+    when others then   -- never leak the temporary LOB if conversion fails
+      if dbms_lob.istemporary(l_blob) = 1 then
+        dbms_lob.freetemporary(l_blob);
+      end if;
+      raise;
   end clob_to_blob;
 
 
@@ -146,7 +152,9 @@ as
       return l_mail;
     end if;
 
-    -- COMPLETED: build the attachment from the result (within the size limit)
+    -- COMPLETED: build the attachment from the result (within the size limit).
+    -- Note: for KML, result_size_bytes is the CLOB length in characters; on a
+    -- non-AL32UTF8 database that under-estimates the UTF-8 byte size slightly.
     l_fmt  := upper(l_job.output_format);
     l_size := nvl(l_job.result_size_bytes, 0);
     l_mail.filename  := nvl(l_job.output_filename, 'kmleon_' || p_job_id)

@@ -170,6 +170,12 @@ as
       lang_context => l_lang_context,
       warning      => l_warning);
     return l_blob;
+  exception
+    when others then   -- never leak the temporary LOB if conversion fails
+      if dbms_lob.istemporary(l_blob) = 1 then
+        dbms_lob.freetemporary(l_blob);
+      end if;
+      raise;
   end clob_to_blob;
 
 
@@ -453,7 +459,9 @@ as
   begin
     l_key := g_styles.first;
     while l_key is not null loop
-      app(l_kml, replace(l_key, '<Style>', '<Style id="ks' || g_styles(l_key) || '">') || chr(10));
+      -- the key always starts with '<Style>'; rewrite only that opening tag
+      app(l_kml, '<Style id="ks' || g_styles(l_key) || '">'
+                 || substr(l_key, length('<Style>') + 1) || chr(10));
       l_key := g_styles.next(l_key);
     end loop;
   end emit_styles;
@@ -643,7 +651,12 @@ as
         l_bkeys := l_bobj.get_keys;
         for i in 1 .. l_bkeys.count loop
           begin
-            dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), l_bobj.get_string(l_bkeys(i)));
+            -- bind numbers as NUMBER, everything else as text (get_string fails on numbers)
+            if l_bobj.get(l_bkeys(i)).is_number then
+              dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), l_bobj.get_number(l_bkeys(i)));
+            else
+              dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), l_bobj.get_string(l_bkeys(i)));
+            end if;
           exception
             when others then
               pck_kml_log.debug(c_pkg, 'run_query', 'bind skipped: ' || l_bkeys(i), p_job.job_id);
@@ -663,26 +676,33 @@ as
       begin
         l_m.alias := l_desc_t(i).col_name;
         l_m.role  := role_of(l_desc_t(i).col_name);
-        if l_m.role = 'GEOM_SDO' then
-          l_m.fetch := 'SDO';  dbms_sql.define_column(l_c, i, l_sdo);
-        elsif l_desc_t(i).col_type = 112 then           -- CLOB
-          l_m.fetch := 'CLOB'; dbms_sql.define_column(l_c, i, l_clob);
-        elsif l_desc_t(i).col_type = 2 then             -- NUMBER
-          l_m.fetch := 'NUM';  dbms_sql.define_column(l_c, i, l_num);
-        elsif l_desc_t(i).col_type = 12 then            -- DATE
-          l_m.fetch := 'DATE'; dbms_sql.define_column(l_c, i, l_dat);
-        elsif l_desc_t(i).col_type = 180 then           -- TIMESTAMP
-          l_m.fetch := 'TS';   dbms_sql.define_column(l_c, i, l_ts);
-        elsif l_desc_t(i).col_type = 181 then           -- TIMESTAMP WITH TIME ZONE
-          l_m.fetch := 'TSTZ'; dbms_sql.define_column(l_c, i, l_tstz);
-        elsif l_desc_t(i).col_type in (1, 96) then      -- VARCHAR2 / CHAR
-          l_m.fetch := 'VC';   dbms_sql.define_column(l_c, i, l_vc, 4000);
-        else
-          l_m.fetch := 'SKIP';
-          pck_kml_log.warn(c_pkg, 'run_query',
-            'column "' || l_desc_t(i).col_name || '" type ' || l_desc_t(i).col_type
-            || ' unsupported; CAST to varchar2/number/date/timestamp in the query', p_job.job_id);
-        end if;
+        begin
+          if l_m.role = 'GEOM_SDO' then
+            l_m.fetch := 'SDO';  dbms_sql.define_column(l_c, i, l_sdo);
+          elsif l_desc_t(i).col_type = 112 then           -- CLOB
+            l_m.fetch := 'CLOB'; dbms_sql.define_column(l_c, i, l_clob);
+          elsif l_desc_t(i).col_type = 2 then             -- NUMBER
+            l_m.fetch := 'NUM';  dbms_sql.define_column(l_c, i, l_num);
+          elsif l_desc_t(i).col_type = 12 then            -- DATE
+            l_m.fetch := 'DATE'; dbms_sql.define_column(l_c, i, l_dat);
+          elsif l_desc_t(i).col_type = 180 then           -- TIMESTAMP
+            l_m.fetch := 'TS';   dbms_sql.define_column(l_c, i, l_ts);
+          elsif l_desc_t(i).col_type = 181 then           -- TIMESTAMP WITH TIME ZONE
+            l_m.fetch := 'TSTZ'; dbms_sql.define_column(l_c, i, l_tstz);
+          elsif l_desc_t(i).col_type in (1, 96) then      -- VARCHAR2 / CHAR
+            l_m.fetch := 'VC';   dbms_sql.define_column(l_c, i, l_vc, 4000);
+          else
+            l_m.fetch := 'SKIP';
+            pck_kml_log.warn(c_pkg, 'run_query',
+              'column "' || l_desc_t(i).col_name || '" type ' || l_desc_t(i).col_type
+              || ' unsupported; CAST to varchar2/number/date/timestamp in the query', p_job.job_id);
+          end if;
+        exception
+          when others then   -- e.g. GEOMETRY aliased onto a non-SDO column: skip it, don't fail the job
+            l_m.fetch := 'SKIP';
+            pck_kml_log.warn(c_pkg, 'run_query',
+              'column "' || l_desc_t(i).col_name || '" define failed; skipped: ' || sqlerrm, p_job.job_id);
+        end;
         l_meta(i) := l_m;
       end;
     end loop;
@@ -889,6 +909,7 @@ as
 
     if upper(l_job.source_type) = 'QUERY' and upper(l_job.source_mode) = 'MATERIALIZE' then
       pck_kml_job_assets_dml.del_by_job(p_job_id);          -- idempotent re-run
+      dbms_lob.createtemporary(l_void, true);                -- unused sink, but pass a valid LOB
       run_query(l_job, 'MATERIALIZE', l_void, l_mcount);     -- writes assets
       l_kml := build_assets_document(p_job_id, l_count);     -- render the materialized assets
     elsif upper(l_job.source_type) = 'QUERY' then

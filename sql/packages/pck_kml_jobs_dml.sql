@@ -170,6 +170,7 @@ as
 
 
   function cancel(p_job_id in number) return pls_integer is
+    l_rows pls_integer;
   begin
     update kml_jobs
        set status      = 'CANCELLED',
@@ -178,8 +179,9 @@ as
            updated_by  = user
      where job_id = p_job_id
        and status in ('DRAFT', 'PENDING');
-    pck_kml_log.info(c_pkg, 'cancel', 'cancelled rows=' || sql%rowcount, p_job_id);
-    return sql%rowcount;
+    l_rows := sql%rowcount;   -- capture before any other SQL (logger INSERT resets sql%rowcount)
+    pck_kml_log.info(c_pkg, 'cancel', 'cancelled rows=' || l_rows, p_job_id);
+    return l_rows;
   end cancel;
 
 
@@ -188,6 +190,9 @@ as
   begin
     select * into l_row from kml_jobs where job_id = p_job_id;
     return l_row;
+  exception
+    when no_data_found then
+      raise_application_error(-20813, 'KML job not found: job_id=' || p_job_id);
   end get;
 
 

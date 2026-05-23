@@ -43,6 +43,12 @@ as
       warning      => l_warning
     );
     return l_blob;
+  exception
+    when others then   -- never leak the temporary LOB if conversion fails
+      if dbms_lob.istemporary(l_blob) = 1 then
+        dbms_lob.freetemporary(l_blob);
+      end if;
+      raise;
   end clob_to_blob;
 
 

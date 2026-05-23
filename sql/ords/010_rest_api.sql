@@ -115,6 +115,11 @@ begin
           owa_util.mime_header('application/json');
           htp.p('{"job_id":' || l_id || ',"status":"DRAFT"}');
         end if;
+      exception
+        when others then        -- malformed JSON body etc.
+          :status_code := 400;
+          owa_util.mime_header('application/json');
+          htp.p('{"error":"invalid request body"}');
       end;
     ~');
 
@@ -174,6 +179,19 @@ begin
         commit;
         owa_util.mime_header('application/json');
         htp.p('{"job_id":' || :id || ',"features_added":' || l_n || '}');
+      exception
+        when others then
+          if sqlcode in (-2291, -20813) then        -- job not found (FK / lookup)
+            :status_code := 404;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job not found"}');
+          elsif sqlcode in (-20821, -1722, -1858, -40441) then  -- bad GeoJSON / bad id
+            :status_code := 400;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"invalid request (bad job id or GeoJSON)"}');
+          else
+            raise;
+          end if;
       end;
     ~');
 
@@ -195,6 +213,14 @@ begin
             :status_code := 409;
             owa_util.mime_header('application/json');
             htp.p('{"error":"job cannot be submitted in its current state"}');
+          elsif sqlcode = -20813 then         -- job not found
+            :status_code := 404;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job not found"}');
+          elsif sqlcode = -1722 then          -- non-numeric :id
+            :status_code := 400;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"invalid job id"}');
           else
             raise;
           end if;
@@ -216,6 +242,19 @@ begin
         l_status := pck_kml_job_api.get_status(to_number(:id));
         owa_util.mime_header('application/json');
         htp.p('{"job_id":' || :id || ',"status":"' || l_status || '"}');
+      exception
+        when others then
+          if sqlcode = -20813 then            -- job not found
+            :status_code := 404;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job not found"}');
+          elsif sqlcode = -1722 then          -- non-numeric :id
+            :status_code := 400;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"invalid job id"}');
+          else
+            raise;
+          end if;
       end;
     ~');
 
@@ -233,10 +272,14 @@ begin
         htp.p('{"job_id":' || :id || ',"status":"CANCELLED"}');
       exception
         when others then
-          if sqlcode = -20811 then            -- not cancellable (already running/finished)
+          if sqlcode = -20811 then            -- not found or not cancellable (running/finished)
             :status_code := 409;
             owa_util.mime_header('application/json');
             htp.p('{"error":"job cannot be cancelled in its current state"}');
+          elsif sqlcode = -1722 then          -- non-numeric :id
+            :status_code := 400;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"invalid job id"}');
           else
             raise;
           end if;
