@@ -26,6 +26,7 @@
 - [Install](#install)
 - [Usage](#usage)
 - [Configuration & maintenance](#configuration--maintenance)
+- [Notifications](#notifications)
 - [Demo app](#demo-app)
 - [Feature mapping contract](#feature-mapping-contract)
 - [Conventions](#conventions)
@@ -43,8 +44,19 @@
   - **Query** — store a `SELECT`; it’s executed and **streamed** to KML at job time
     (the slow data-fetch runs *inside* the async job).
   - **GeoJSON** — push a FeatureCollection from outside (e.g. APEX REST).
+- **Rich, standards-compliant KML.** Shared `<Style>` definitions (deduped to `styleUrl`),
+  nested `<Folder>` hierarchies from `/`-separated paths, per-feature styling, and 3D
+  (`altitudeMode` / `extrude` / `tessellate`). KMZ via `APEX_ZIP`.
 - **Variable metadata per feature** — `name`, `description` (HTML balloon), and any extra
   attributes become `<ExtendedData>` automatically.
+- **Run it your way.** Synchronous (`run_now`) or async via the `KMLEON_DISPATCHER`
+  scheduler job that drains the `PENDING` queue by priority.
+- **Completion e-mail.** `PCK_KML_NOTIFY` notifies on COMPLETED/FAILED with the result
+  attached — generic and best-effort, with `resolve_recipient` / `send_mail` hooks.
+- **Operational config & metrics.** A typed `KML_CONFIG` store keeps behaviour settings and
+  auto-maintained metrics (last created / completed / failed / cleanup); a scheduled cleanup
+  job purges old jobs by status + age, and finished jobs free their assets automatically.
+- **REST-ready.** A drop-in ORDS script exposes the ASSETS path over HTTP.
 - **Disciplined data layer** — every table is written only through its DML package, with
   central logging and uniform audit columns.
 
@@ -58,9 +70,14 @@
                              ▼
                     PCK_KML_ENGINE.run_job ───────► result_kml (CLOB)
                        ├─ SDO / GeoJSON → KML                  or
-                       └─ PCK_KML_KMZ.zip_kml ──────► result_kmz (BLOB)
+                       ├─ PCK_KML_KMZ.zip_kml ──────► result_kmz (BLOB)
+                       ├─ PCK_KML_NOTIFY ──────────► completion e-mail (best-effort)
+                       └─ free assets (DELETE_ASSETS_AFTER_SUCCESS) + stamp metrics
 
-        DBMS_SCHEDULER (KMLEON_DISPATCHER) ──► PCK_KML_ENGINE.process_pending
+  DBMS_SCHEDULER ─ KMLEON_DISPATCHER  ──► PCK_KML_ENGINE.process_pending  (drain PENDING)
+                 └ KMLEON_MAINTENANCE ──► PCK_KML_MAINTENANCE.cleanup     (purge old jobs)
+
+  KML_CONFIG : SETTINGs (behaviour) + METRICs (last created / completed / failed / cleanup)
 ```
 
 Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED`.
@@ -78,6 +95,8 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 | `PCK_KML_NOTIFY` | completion e-mail (file attached); generic, with `resolve_recipient` / `send_mail` hooks |
 | `PCK_KML_MAINTENANCE` | config-driven cleanup of old jobs + its scheduler job |
 | `PCK_KML_JOB_API` | optional convenience wrapper |
+| `KMLEON_DISPATCHER` / `KMLEON_MAINTENANCE` | scheduler jobs: drain `PENDING` / scheduled cleanup |
+| ORDS `kmleon.v1` | optional REST module (ASSETS path) — [`sql/ords/010_rest_api.sql`](sql/ords/010_rest_api.sql) |
 
 ## Requirements
 
@@ -252,6 +271,19 @@ declare n pls_integer; begin n := pck_kml_maintenance.run_cleanup(p_force => tru
 
 Read settings with `pck_kml_config_dml.get_string/get_number/get_timestamp/get_boolean`.
 Reinstalling preserves edited values (`init_defaults` only inserts missing keys).
+
+## Notifications
+
+On COMPLETED and FAILED, `run_job` calls `PCK_KML_NOTIFY.notify` **best-effort** — a notify
+error can never change the job's committed status. It builds a generic subject/body with the
+result as an attachment and hands it to a sender. Out of the box it only logs; wire it to
+your mail stack by editing the two `-- CUSTOMIZE HERE` hooks:
+
+- **`resolve_recipient(user_tab, user_id)`** — map a job's creator to an address.
+- **`send_mail(...)`** — actually send (e.g. `APEX_MAIL` / `UTL_SMTP`).
+
+The recipient is `KML_JOBS.notify_email` when set (wins, e.g. for REST callers), otherwise
+`resolve_recipient(user_tab, user_id)`. `notified_at` is stamped via the DML package.
 
 ## Demo app
 
