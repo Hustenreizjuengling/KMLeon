@@ -45,11 +45,12 @@ page 8 (
                 <p class="u-textGrey">
                   This builds a deliberately <b>slow</b> QUERY job: each generated point calls
                   <code>kml_demo_slow(:secs)</code> (a per-row sleep), so the whole build takes
-                  roughly <i>points &times; seconds</i>. It is launched with
-                  <code>submit_job(p_async =&gt; true)</code> &mdash; it runs in its own
-                  background job, the button returns instantly, and the status list below
-                  refreshes every 3&nbsp;s so you can watch <b>PENDING &rarr; RUNNING &rarr;
-                  COMPLETED</b> without the page blocking.
+                  roughly <i>points &times; seconds</i> (set seconds to <b>0</b> to run as fast as
+                  possible). Pick the <b>Run mode</b> to compare:
+                  <b>Async</b> uses <code>submit_job(p_async =&gt; true)</code> &mdash; the button
+                  returns instantly and the status list below refreshes every 3&nbsp;s so you watch
+                  <b>PENDING &rarr; RUNNING &rarr; COMPLETED</b>; <b>Sync</b> uses
+                  <code>run_now</code> and blocks this request until the build finishes.
                 </p>
                 ```
         }
@@ -90,7 +91,36 @@ page 8 (
             icon: fa-clock-o
         }
         help {
-            helpText: Sleep per generated row. Total build time is about points x seconds.
+            helpText: Sleep per generated row. Total build time is about points x seconds. Use 0 to run as fast as possible.
+        }
+    )
+
+    pageItem P8_MODE (
+        type: selectList
+        label {
+            label: Run mode
+        }
+        layout {
+            sequence: 25
+            region: @intro
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Async (own background job)' as d, 'ASYNC' as r from dual
+                union all
+                select 'Sync (blocks until done)'   as d, 'SYNC'  as r from dual
+                ```
+            displayNullValue: false
+        }
+        help {
+            helpText: Async returns immediately and runs in a one-shot scheduler job; Sync blocks this request until the build finishes.
         }
     )
 
@@ -122,7 +152,7 @@ page 8 (
 
     button go (
         buttonName: GO
-        label: Create and run async
+        label: Create and run
         layout {
             sequence: 40
             region: @intro
@@ -290,6 +320,7 @@ page 8 (
                   :P8_POINTS  := nvl(:P8_POINTS, 8);
                   :P8_SECONDS := nvl(:P8_SECONDS, 3);
                   :P8_FORMAT  := nvl(:P8_FORMAT, 'KML');
+                  :P8_MODE    := nvl(:P8_MODE, 'ASYNC');
                 end;
                 ```
         }
@@ -313,16 +344,16 @@ page 8 (
         action do-launch (
             action: executeServerSideCode
             settings {
-                itemsToSubmit: P8_POINTS,P8_SECONDS,P8_FORMAT
+                itemsToSubmit: P8_POINTS,P8_SECONDS,P8_FORMAT,P8_MODE
                 plsqlCode:
                     ```plsql
                     declare
                       l_job number;
                     begin
                       l_job := pck_kml_job_api.create_job_from_query(
-                        p_document_name => 'Async demo (' || :P8_POINTS || ' pts x ' || :P8_SECONDS || 's)',
+                        p_document_name => nvl(:P8_MODE, 'ASYNC') || ' demo (' || :P8_POINTS || ' pts x ' || :P8_SECONDS || 's)',
                         p_output_format => nvl(:P8_FORMAT, 'KML'),
-                        p_source_binds  => '{"secs":"' || :P8_SECONDS || '","n":"' || :P8_POINTS || '"}',
+                        p_source_binds  => '{"secs":"' || nvl(:P8_SECONDS, '0') || '","n":"' || nvl(:P8_POINTS, '1') || '"}',
                         p_source_query  => q'[
                             select sdo_geometry(2001, 4326,
                                      sdo_point_type(13.4 + dbms_random.value(-3, 3),
@@ -335,7 +366,11 @@ page 8 (
                             connect by level <= :n
                         ]');
                       commit;
-                      pck_kml_job_api.submit_job(l_job, p_async => true);
+                      if nvl(:P8_MODE, 'ASYNC') = 'SYNC' then
+                        pck_kml_job_api.run_now(l_job);                    -- blocks until done
+                      else
+                        pck_kml_job_api.submit_job(l_job, p_async => true); -- own background job
+                      end if;
                     end;
                     ```
             }
@@ -360,7 +395,7 @@ page 8 (
         action msg-launched (
             action: showSuccessMessage
             settings {
-                message: Job launched in the background. Watch the status list update below.
+                message: Done. Async runs in its own background job (watch the list below); Sync blocked this request until it finished.
             }
             execution {
                 sequence: 30
