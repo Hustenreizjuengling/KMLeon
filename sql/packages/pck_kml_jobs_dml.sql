@@ -47,6 +47,16 @@ as
 
   function get(p_job_id in number) return kml_jobs%rowtype;
   procedure del(p_job_id in number);
+
+  -- Delete jobs (+assets via FK) older than p_older_than_days. p_statuses is a
+  -- comma list, but only terminal statuses (COMPLETED/FAILED/CANCELLED) are ever
+  -- removed regardless of what is passed. Returns rows deleted.
+  function purge(
+    p_statuses        in varchar2 default 'COMPLETED,CANCELLED',
+    p_older_than_days in number   default 30
+  ) return pls_integer;
+
+  -- Back-compat: purge all terminal statuses (delegates to purge).
   procedure purge_finished(p_older_than_days in number default 30);
 end pck_kml_jobs_dml;
 /
@@ -93,6 +103,7 @@ as
     ) returning job_id into l_id;
 
     pck_kml_log.info(c_pkg, 'ins', 'created job "' || p_document_name || '"', l_id);
+    pck_kml_config_dml.touch_metric('METRIC_LAST_JOB_CREATED_AT');   -- best-effort
     return l_id;
   end ins;
 
@@ -153,6 +164,7 @@ as
      where job_id = p_job_id;
     pck_kml_log.info(c_pkg, 'set_completed',
                      'completed (' || p_count || ' assets, ' || p_size || ' bytes)', p_job_id);
+    pck_kml_config_dml.touch_metric('METRIC_LAST_JOB_COMPLETED_AT');   -- best-effort
   end set_completed;
 
 
@@ -166,6 +178,7 @@ as
            updated_by     = user
      where job_id = p_job_id;
     pck_kml_log.error(c_pkg, 'set_failed', p_error, p_job_id);
+    pck_kml_config_dml.touch_metric('METRIC_LAST_JOB_FAILED_AT');   -- best-effort
   end set_failed;
 
 
@@ -181,6 +194,9 @@ as
        and status in ('DRAFT', 'PENDING');
     l_rows := sql%rowcount;   -- capture before any other SQL (logger INSERT resets sql%rowcount)
     pck_kml_log.info(c_pkg, 'cancel', 'cancelled rows=' || l_rows, p_job_id);
+    if l_rows > 0 then
+      pck_kml_config_dml.touch_metric('METRIC_LAST_JOB_CANCELLED_AT');   -- best-effort
+    end if;
     return l_rows;
   end cancel;
 
@@ -203,12 +219,28 @@ as
   end del;
 
 
-  procedure purge_finished(p_older_than_days in number default 30) is
+  function purge(
+    p_statuses        in varchar2 default 'COMPLETED,CANCELLED',
+    p_older_than_days in number   default 30
+  ) return pls_integer is
+    l_norm varchar2(200) := upper(replace(p_statuses, ' '));  -- e.g. ',COMPLETED,CANCELLED,'
+    l_rows pls_integer;
   begin
     delete from kml_jobs
-     where status in ('COMPLETED', 'FAILED', 'CANCELLED')
+     where status in ('COMPLETED', 'FAILED', 'CANCELLED')                 -- terminal-only guard
+       and instr(',' || l_norm || ',', ',' || status || ',') > 0          -- configured subset
        and finished_at < systimestamp - numtodsinterval(p_older_than_days, 'DAY');
-    pck_kml_log.info(c_pkg, 'purge_finished', 'purged rows=' || sql%rowcount);
+    l_rows := sql%rowcount;   -- capture before any other SQL (logger INSERT resets sql%rowcount)
+    pck_kml_log.info(c_pkg, 'purge',
+      'purged rows=' || l_rows || ' statuses=' || l_norm || ' older_than_days=' || p_older_than_days);
+    return l_rows;
+  end purge;
+
+
+  procedure purge_finished(p_older_than_days in number default 30) is
+    l_void pls_integer;
+  begin
+    l_void := purge('COMPLETED,FAILED,CANCELLED', p_older_than_days);
   end purge_finished;
 
 end pck_kml_jobs_dml;

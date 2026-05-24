@@ -936,6 +936,19 @@ as
 
     commit;
 
+    -- best-effort: free the input assets after a successful build (configurable,
+    -- default ON). Separate transaction so a cleanup error never affects the
+    -- already-committed COMPLETED job. del_by_job is a no-op when there are none.
+    begin
+      if pck_kml_config_dml.get_boolean('DELETE_ASSETS_AFTER_SUCCESS', true) then
+        pck_kml_job_assets_dml.del_by_job(p_job_id);
+        commit;
+      end if;
+    exception when others then
+      rollback;
+      pck_kml_log.warn(c_pkg, 'run_job', 'asset cleanup after success skipped: ' || sqlerrm, p_job_id);
+    end;
+
     -- best-effort completion notification (must never affect the committed job)
     begin
       pck_kml_notify.notify(p_job_id, 'COMPLETED');

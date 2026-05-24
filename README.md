@@ -25,6 +25,7 @@
 - [Requirements](#requirements)
 - [Install](#install)
 - [Usage](#usage)
+- [Configuration & maintenance](#configuration--maintenance)
 - [Demo app](#demo-app)
 - [Feature mapping contract](#feature-mapping-contract)
 - [Conventions](#conventions)
@@ -70,10 +71,12 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 |---|---|
 | `KML_JOBS` | one row per export request + result + status (`PCK_KML_JOBS_DML`) |
 | `KML_JOB_ASSETS` | one row per feature: geometry + metadata + style (`PCK_KML_JOB_ASSETS_DML`) |
+| `KML_CONFIG` | typed key/value store: SETTINGs + auto-maintained METRICs (`PCK_KML_CONFIG_DML`) |
 | `KML_LOG` | central log (`PCK_KML_LOG`) |
 | `PCK_KML_ENGINE` | the generic generator: geometry→KML, assembly, execution, dispatcher |
 | `PCK_KML_KMZ` | KMZ zipping (isolated `APEX_ZIP` dependency) |
 | `PCK_KML_NOTIFY` | completion e-mail (file attached); generic, with `resolve_recipient` / `send_mail` hooks |
+| `PCK_KML_MAINTENANCE` | config-driven cleanup of old jobs + its scheduler job |
 | `PCK_KML_JOB_API` | optional convenience wrapper |
 
 ## Requirements
@@ -93,6 +96,8 @@ sqlplus kmleon/****@db @install.sql
 @scheduler/010_scheduler.sql      -- enable the background dispatcher
 ```
 
+Updating an existing install (non-destructive — keeps your data): `@update.sql`. It
+creates any new table, recompiles all packages, and seeds missing config defaults.
 Remove everything with `@uninstall.sql`. Smoke tests live in [`tests/`](tests).
 
 ## Usage
@@ -213,6 +218,40 @@ PL/SQL API — no manual clicking) lives at
 Workshop → SQL Scripts**. The `QUERY` source is deliberately **not** exposed over
 REST; secure the module before using it (see the script's header).
 </details>
+
+## Configuration & maintenance
+
+`KML_CONFIG` is a typed key/value table holding two kinds of rows (written only via
+`PCK_KML_CONFIG_DML`):
+
+- **METRICs** — auto-maintained, best-effort. The jobs DML package stamps
+  `METRIC_LAST_JOB_CREATED_AT`, `…_COMPLETED_AT`, `…_FAILED_AT`, `…_CANCELLED_AT`;
+  the cleanup job stamps `METRIC_LAST_CLEANUP_AT` / `…_DELETED`. A metric write can
+  never break the surrounding job transaction.
+- **SETTINGs** — behaviour switches. `DELETE_ASSETS_AFTER_SUCCESS` (default **ON**):
+  after a job builds successfully, `run_job` deletes that job's stored
+  `KML_JOB_ASSETS` rows (best-effort, separate transaction — the result stays on the
+  job; note a later re-run of an `ASSETS` job then has no input). Plus the cleanup
+  job: `CLEANUP_ENABLED`, `CLEANUP_INTERVAL` (DBMS_SCHEDULER calendar),
+  `CLEANUP_RETENTION_DAYS`, `CLEANUP_STATUSES`.
+
+`PCK_KML_MAINTENANCE.cleanup` reads those settings and purges old jobs (+their
+assets) via `PCK_KML_JOBS_DML.purge` — **only terminal statuses** (`COMPLETED` /
+`FAILED` / `CANCELLED`) are ever deleted, regardless of what `CLEANUP_STATUSES`
+lists. `apply_schedule` (re)creates the `KMLEON_MAINTENANCE` scheduler job from the
+current config:
+
+```sql
+exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
+exec pck_kml_config_dml.set_number ('CLEANUP_RETENTION_DAYS', 30);
+commit;
+@scheduler/020_maintenance.sql        -- applies the schedule
+-- run once, ignoring the enabled switch:
+declare n pls_integer; begin n := pck_kml_maintenance.run_cleanup(p_force => true); end;
+```
+
+Read settings with `pck_kml_config_dml.get_string/get_number/get_timestamp/get_boolean`.
+Reinstalling preserves edited values (`init_defaults` only inserts missing keys).
 
 ## Demo app
 

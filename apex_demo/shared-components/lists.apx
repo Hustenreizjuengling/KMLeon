@@ -115,5 +115,24 @@ list navigation-menu (
         }
     )
 
+    entry settings (
+        label: Settings
+        icon {
+            imageIconCssClasses: fa-cog
+        }
+        layout {
+            sequence: 50
+        }
+        isCurrent {
+            type: pages
+            pages: 7
+        }
+        link {
+            target: {
+                page: 7
+            }
+        }
+    )
+
 )
 

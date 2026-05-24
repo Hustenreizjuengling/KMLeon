@@ -12,12 +12,18 @@ repo under `apex_demo/`. Built on top of a **real frontend-exported APEXLang app
   - an IR over `KML_JOBS` (status badge) full width below — clicking a row's link sets
     `P1_JOB_ID` and reloads focused on that job;
   - an **Assets** IR below, filtered to the selected job (else latest COMPLETED).
+  The KPI strip also shows the latest *created / completed / failed / cleanup*
+  timestamps (from `KML_CONFIG` metrics).
   Buttons: *New job* + *Process PENDING* are always shown; *Re-run*, *Cancel* and
   *Download* appear **only when a job is selected** (`serverSideCondition` →
   `itemIsNotNull P1_JOB_ID`). Actions run via Dynamic Actions → `PCK_KML_*`.
 - **3 New job** — modern form (floating labels, format dropdown) + *Create from
   GeoJSON & run* / *Create from SELECT & run*.
 - **5 Logs** — IR over `KML_LOG`.
+- **7 Settings** — edit the cleanup job (`CLEANUP_*` in `KML_CONFIG`): enabled,
+  interval, retention, statuses. *Save and apply schedule* writes via
+  `PCK_KML_CONFIG_DML` + `PCK_KML_MAINTENANCE.apply_schedule`; *Run cleanup now*
+  calls `PCK_KML_MAINTENANCE.run_cleanup(p_force => true)`. Plus an IR over all config.
 - **9 Download** — streams `result_kmz`/`result_kml` as a file (before-header process).
 - `demo_data.sql` — seeds & runs a few jobs via `PCK_KML_JOB_API`.
 

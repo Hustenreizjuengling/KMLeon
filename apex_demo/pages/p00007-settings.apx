@@ -1,0 +1,455 @@
+page 7 (
+    name: Settings
+    alias: SETTINGS
+    title: KMLeon - Settings
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region general (
+        name: General
+        type: staticContent
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P7_DELETE_ASSETS (
+        type: selectList
+        label {
+            label: Delete assets after success
+        }
+        layout {
+            sequence: 10
+            region: @general
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'On' as d, 'Y' as r from dual
+                union all
+                select 'Off' as d, 'N' as r from dual
+                ```
+            displayNullValue: false
+        }
+        help {
+            helpText: When on, a job's stored assets are deleted after it builds successfully (the result stays on the job).
+        }
+    )
+
+    region cfg (
+        name: Cleanup job
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P7_CLEANUP_ENABLED (
+        type: selectList
+        label {
+            label: Cleanup enabled
+        }
+        layout {
+            sequence: 10
+            region: @cfg
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Enabled' as d, 'Y' as r from dual
+                union all
+                select 'Disabled' as d, 'N' as r from dual
+                ```
+            displayNullValue: false
+        }
+        help {
+            helpText: Master switch for the scheduled KMLEON_MAINTENANCE cleanup job.
+        }
+    )
+
+    pageItem P7_CLEANUP_RETENTION_DAYS (
+        type: numberField
+        label {
+            label: Retention (days)
+        }
+        layout {
+            sequence: 20
+            region: @cfg
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+            icon: fa-calendar-o
+        }
+        help {
+            helpText: Only jobs finished more than this many days ago are eligible for cleanup.
+        }
+    )
+
+    pageItem P7_CLEANUP_INTERVAL (
+        type: textField
+        label {
+            label: Interval (scheduler calendar)
+        }
+        layout {
+            sequence: 30
+            region: @cfg
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+            valuePlaceholder: FREQ=DAILY;BYHOUR=3
+            icon: fa-clock-o
+        }
+        help {
+            helpText: DBMS_SCHEDULER calendar string controlling how often cleanup runs.
+        }
+    )
+
+    pageItem P7_CLEANUP_STATUSES (
+        type: textField
+        label {
+            label: Statuses to clean
+        }
+        layout {
+            sequence: 40
+            region: @cfg
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+            valuePlaceholder: COMPLETED,CANCELLED
+        }
+        help {
+            helpText: Comma-separated terminal statuses. Only COMPLETED/FAILED/CANCELLED are ever deleted.
+        }
+    )
+
+    button save (
+        buttonName: SAVE
+        label: Save and apply schedule
+        layout {
+            sequence: 50
+            region: @cfg
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    button run-now (
+        buttonName: RUN_NOW
+        label: Run cleanup now
+        layout {
+            sequence: 60
+            region: @cfg
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    region cfg-list (
+        name: All configuration
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select config_key,
+                       category,
+                       data_type,
+                       value_string,
+                       value_number,
+                       value_timestamp,
+                       description,
+                       updated_at
+                  from kml_config
+                 order by category, config_key
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+
+        column CONFIG_KEY (
+            type: plainText
+            heading {
+                heading: Key
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column CATEGORY (
+            type: plainText
+            heading {
+                heading: Category
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column DATA_TYPE (
+            type: plainText
+            heading {
+                heading: Type
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column VALUE_STRING (
+            type: plainText
+            heading {
+                heading: String
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column VALUE_NUMBER (
+            type: plainText
+            heading {
+                heading: Number
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column VALUE_TIMESTAMP (
+            type: plainText
+            heading {
+                heading: Timestamp
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column DESCRIPTION (
+            type: plainText
+            heading {
+                heading: Description
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column UPDATED_AT (
+            type: plainText
+            heading {
+                heading: Updated
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: STRING
+            }
+        )
+    )
+
+    process load-config (
+        name: Load current config
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P7_DELETE_ASSETS          := nvl(pck_kml_config_dml.get_string('DELETE_ASSETS_AFTER_SUCCESS'), 'Y');
+                  :P7_CLEANUP_ENABLED        := nvl(pck_kml_config_dml.get_string('CLEANUP_ENABLED'), 'N');
+                  :P7_CLEANUP_INTERVAL       := pck_kml_config_dml.get_string('CLEANUP_INTERVAL', 'FREQ=DAILY;BYHOUR=3');
+                  :P7_CLEANUP_RETENTION_DAYS := pck_kml_config_dml.get_number('CLEANUP_RETENTION_DAYS', 30);
+                  :P7_CLEANUP_STATUSES       := pck_kml_config_dml.get_string('CLEANUP_STATUSES', 'COMPLETED,CANCELLED');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-save (
+        name: Save settings
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @save
+        }
+
+        action do-save (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P7_DELETE_ASSETS,P7_CLEANUP_ENABLED,P7_CLEANUP_INTERVAL,P7_CLEANUP_RETENTION_DAYS,P7_CLEANUP_STATUSES
+                plsqlCode:
+                    ```plsql
+                    begin
+                      pck_kml_config_dml.set_boolean('DELETE_ASSETS_AFTER_SUCCESS', :P7_DELETE_ASSETS = 'Y');
+                      pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', :P7_CLEANUP_ENABLED = 'Y');
+                      pck_kml_config_dml.set_string ('CLEANUP_INTERVAL', :P7_CLEANUP_INTERVAL);
+                      pck_kml_config_dml.set_number ('CLEANUP_RETENTION_DAYS', to_number(:P7_CLEANUP_RETENTION_DAYS));
+                      pck_kml_config_dml.set_string ('CLEANUP_STATUSES', upper(:P7_CLEANUP_STATUSES));
+                      commit;
+                      pck_kml_maintenance.apply_schedule;
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-cfg-list (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @cfg-list
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action msg-save (
+            action: showSuccessMessage
+            settings {
+                message: Settings saved and schedule applied.
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-run-now (
+        name: Run cleanup now
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @run-now
+        }
+
+        action do-run-now (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    declare
+                      l_deleted pls_integer;
+                    begin
+                      l_deleted := pck_kml_maintenance.run_cleanup(p_force => true);
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-after-run (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @cfg-list
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action msg-run (
+            action: showSuccessMessage
+            settings {
+                message: Cleanup executed.
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

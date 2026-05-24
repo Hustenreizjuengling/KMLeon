@@ -146,13 +146,21 @@ page 1 (
             type: sqlQuery
             sqlQuery:
                 ```sql
-                select 1 as id, 'Total jobs' as title, count(*) as val, 'fa-list-alt' as icon from kml_jobs
+                select 1 as id, 'Total jobs' as title, to_char(count(*)) as val, 'fa-list-alt' as icon from kml_jobs
                 union all
-                select 2, 'Completed', count(case when status = 'COMPLETED' then 1 end), 'fa-check-circle' from kml_jobs
+                select 2, 'Completed', to_char(count(case when status = 'COMPLETED' then 1 end)), 'fa-check-circle' from kml_jobs
                 union all
-                select 3, 'Failed', count(case when status = 'FAILED' then 1 end), 'fa-exclamation-triangle' from kml_jobs
+                select 3, 'Failed', to_char(count(case when status = 'FAILED' then 1 end)), 'fa-exclamation-triangle' from kml_jobs
                 union all
-                select 4, 'Pending / running', count(case when status in ('PENDING','RUNNING') then 1 end), 'fa-clock-o' from kml_jobs
+                select 4, 'Pending / running', to_char(count(case when status in ('PENDING','RUNNING') then 1 end)), 'fa-clock-o' from kml_jobs
+                union all
+                select 5, 'Last created',   nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-plus-circle'    from kml_config where config_key = 'METRIC_LAST_JOB_CREATED_AT'
+                union all
+                select 6, 'Last completed', nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-flag-checkered' from kml_config where config_key = 'METRIC_LAST_JOB_COMPLETED_AT'
+                union all
+                select 7, 'Last failed',    nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-times-circle'   from kml_config where config_key = 'METRIC_LAST_JOB_FAILED_AT'
+                union all
+                select 8, 'Last cleanup',   nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-trash-o'        from kml_config where config_key = 'METRIC_LAST_CLEANUP_AT'
                 order by id
                 ```
         }
