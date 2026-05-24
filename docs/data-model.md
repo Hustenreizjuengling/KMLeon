@@ -1,12 +1,13 @@
 # KMLeon data model
 
-Three tables. The application owns the data; the engine is generic. **All writes
+Four tables. The application owns the data; the engine is generic. **All writes
 go through the DML packages** — never INSERT/UPDATE/DELETE the tables directly.
 
 | Table | DML package |
 |---|---|
 | `KML_JOBS` | `PCK_KML_JOBS_DML` |
 | `KML_JOB_ASSETS` | `PCK_KML_JOB_ASSETS_DML` |
+| `KML_CONFIG` | `PCK_KML_CONFIG_DML` |
 | `KML_LOG` | `PCK_KML_LOG` |
 
 Every table ends with the audit columns `created_at`, `created_by`, `updated_at`,
@@ -69,6 +70,11 @@ One row per map feature. `job_id` → `KML_JOBS` with `ON DELETE CASCADE`.
 Exactly one of `geometry_sdo` / `geometry_geojson` must be supplied
 (enforced in `PCK_KML_JOB_ASSETS_DML.ins`).
 
+> **Lifecycle:** when the `DELETE_ASSETS_AFTER_SUCCESS` setting is on (default), a job's
+> assets are deleted after it builds successfully (the result stays on `KML_JOBS`) — see
+> the `KML_CONFIG` section below. A re-run of an `ASSETS` job after cleanup therefore has
+> no input rows.
+
 ## `KML_LOG`
 
 Central log, written only by `PCK_KML_LOG` (autonomous transaction).
@@ -83,6 +89,63 @@ Central log, written only by `PCK_KML_LOG` (autonomous transaction).
 | audit (4 cols) | — | |
 
 Threshold is `INFO` by default; change with `PCK_KML_LOG.set_threshold('DEBUG')`.
+
+## `KML_CONFIG` — Configuration & maintenance
+
+Typed key/value store, written only by `PCK_KML_CONFIG_DML`. Each row is one key; the
+`category` says whether it is user-configured (`SETTING`) or auto-maintained (`METRIC`),
+and `data_type` selects which `value_*` column carries the value.
+
+| Column | Type | Notes |
+|---|---|---|
+| `config_key` | VARCHAR2(100) (PK) | e.g. `CLEANUP_ENABLED`, `METRIC_LAST_JOB_FAILED_AT`. |
+| `category` | VARCHAR2(20) | `SETTING` or `METRIC`. |
+| `data_type` | VARCHAR2(20) | `STRING` / `NUMBER` / `TIMESTAMP` / `BOOLEAN` (BOOLEAN held as `Y`/`N` in `value_string`). |
+| `value_string` | VARCHAR2(4000) | Value when `data_type` is `STRING`/`BOOLEAN`. |
+| `value_number` | NUMBER | Value when `data_type` is `NUMBER`. |
+| `value_timestamp` | TIMESTAMP | Value when `data_type` is `TIMESTAMP`. |
+| `description` | VARCHAR2(400) | Human-readable purpose. |
+| audit (4 cols) | — | See above. |
+
+Read with the typed getters (return a caller default on a missing key); write with the
+typed setters (upsert) — both on `PCK_KML_CONFIG_DML`:
+
+```sql
+v := pck_kml_config_dml.get_number('CLEANUP_RETENTION_DAYS', 30);
+exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
+```
+
+### Default keys
+
+| Key | Cat. | Type | Default | Purpose |
+|---|---|---|---|---|
+| `DELETE_ASSETS_AFTER_SUCCESS` | SETTING | BOOLEAN | `Y` | Delete a job's assets after a successful build. |
+| `CLEANUP_ENABLED` | SETTING | BOOLEAN | `N` | Master switch for the scheduled cleanup job. |
+| `CLEANUP_INTERVAL` | SETTING | STRING | `FREQ=DAILY;BYHOUR=3` | DBMS_SCHEDULER calendar for how often cleanup runs. |
+| `CLEANUP_RETENTION_DAYS` | SETTING | NUMBER | `30` | Only jobs finished older than this are eligible. |
+| `CLEANUP_STATUSES` | SETTING | STRING | `COMPLETED,CANCELLED` | Terminal statuses the cleanup deletes. |
+| `METRIC_LAST_JOB_CREATED_AT` | METRIC | TIMESTAMP | — | Stamped by `PCK_KML_JOBS_DML.ins`. |
+| `METRIC_LAST_JOB_COMPLETED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_completed`. |
+| `METRIC_LAST_JOB_FAILED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_failed`. |
+| `METRIC_LAST_JOB_CANCELLED_AT` | METRIC | TIMESTAMP | — | Stamped by `cancel`. |
+| `METRIC_LAST_CLEANUP_AT` | METRIC | TIMESTAMP | — | Stamped by the cleanup run. |
+| `METRIC_LAST_CLEANUP_DELETED` | METRIC | NUMBER | — | Rows deleted by the last cleanup run. |
+
+`PCK_KML_CONFIG_DML.init_defaults` seeds the keys above **only when missing**, so a
+reinstall/update preserves edited values. Metric stamping is **best-effort**: a failure to
+write a metric never breaks the surrounding job transaction.
+
+### Cleanup job (`PCK_KML_MAINTENANCE`)
+
+`run_cleanup(p_force)` reads the `CLEANUP_*` settings and purges old jobs (assets cascade)
+via `PCK_KML_JOBS_DML.purge(statuses, days)`. Only **terminal** statuses (`COMPLETED` /
+`FAILED` / `CANCELLED`) are ever deleted regardless of `CLEANUP_STATUSES`, and only jobs
+whose `finished_at` is older than `CLEANUP_RETENTION_DAYS`. It stamps `METRIC_LAST_CLEANUP_*`
+and commits.
+
+`apply_schedule` (re)creates or drops the `KMLEON_MAINTENANCE` `DBMS_SCHEDULER` job from
+the current config (enabled + interval). Set it up / re-apply after changing settings with
+[`sql/scheduler/020_maintenance.sql`](../sql/scheduler/020_maintenance.sql).
 
 ## Query source (`source_type = 'QUERY'`)
 
@@ -190,6 +253,7 @@ logged but nothing is sent — the job is unaffected. Notifications fire on both
   into the geometry output. They affect **3D viewers only** (Google Earth, Cesium);
   2D viewers ignore them, and `altitude_mode`/`extrude` need Z-bearing geometry to
   be meaningful. `GEOMETRY_KML` passthrough is left untouched (caller-controlled).
-- **KMZ**: relies on `APEX_ZIP`; swap in a pure-PL/SQL zipper if APEX is absent.
+- **KMZ**: relies on `APEX_ZIP` (assumed available; a pure-PL/SQL fallback was
+  intentionally dropped). Without it, `KML` output still works and KMZ jobs fail clearly.
 - **ExtendedData**: values read as strings via `JSON_OBJECT_T`; malformed JSON
   silently omits the block.
