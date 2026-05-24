@@ -6,8 +6,8 @@
 -- The body depends on APEX_ZIP (ships with Oracle APEX). The dependency is
 -- isolated here: the spec has no APEX reference, so PCK_KML_ENGINE always
 -- compiles; only this body becomes invalid without APEX, and KMZ jobs then fail
--- at runtime while KML output keeps working. No APEX? Swap the body for a
--- pure-PL/SQL zipper such as AS_ZIP -- the spec stays unchanged.
+-- at runtime while KML output keeps working. APEX (APEX_ZIP) is assumed available
+-- in the target environment; a pure-PL/SQL ZIP fallback was intentionally dropped.
 --------------------------------------------------------------------------------
 
 create or replace package pck_kml_kmz
@@ -54,15 +54,26 @@ as
 
   function zip_kml(p_kml in clob, p_entry_name in varchar2 default 'doc.kml') return blob
   is
-    l_zip blob;
+    l_zip     blob;
+    l_content blob;
   begin
+    l_content := clob_to_blob(p_kml);   -- hold the temp LOB so we can free it
     apex_zip.add_file(
       p_zipped_blob => l_zip,
       p_file_name   => p_entry_name,
-      p_content     => clob_to_blob(p_kml)
+      p_content     => l_content
     );
     apex_zip.finish(p_zipped_blob => l_zip);
+    if dbms_lob.istemporary(l_content) = 1 then
+      dbms_lob.freetemporary(l_content);
+    end if;
     return l_zip;
+  exception
+    when others then
+      if dbms_lob.istemporary(l_content) = 1 then
+        dbms_lob.freetemporary(l_content);
+      end if;
+      raise;
   end zip_kml;
 
 end pck_kml_kmz;

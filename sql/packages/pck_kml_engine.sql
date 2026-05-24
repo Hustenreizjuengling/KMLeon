@@ -658,9 +658,16 @@ as
         l_bkeys := l_bobj.get_keys;
         for i in 1 .. l_bkeys.count loop
           begin
-            -- bind numbers as NUMBER, everything else as text (get_string fails on numbers)
+            -- bind by JSON type: NUMBER as number, BOOLEAN as 1/0, NULL as NULL text,
+            -- everything else as text (get_string raises on non-string scalars)
             if l_bobj.get(l_bkeys(i)).is_number then
               dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), l_bobj.get_number(l_bkeys(i)));
+            elsif l_bobj.get(l_bkeys(i)).is_true then
+              dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), '1');
+            elsif l_bobj.get(l_bkeys(i)).is_false then
+              dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), '0');
+            elsif l_bobj.get(l_bkeys(i)).is_null then
+              dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), cast(null as varchar2));
             else
               dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), l_bobj.get_string(l_bkeys(i)));
             end if;
@@ -918,6 +925,9 @@ as
       pck_kml_job_assets_dml.del_by_job(p_job_id);          -- idempotent re-run
       dbms_lob.createtemporary(l_void, true);                -- unused sink, but pass a valid LOB
       run_query(l_job, 'MATERIALIZE', l_void, l_mcount);     -- writes assets
+      if dbms_lob.istemporary(l_void) = 1 then               -- free the sink (not auto-freed)
+        dbms_lob.freetemporary(l_void);
+      end if;
       l_kml := build_assets_document(p_job_id, l_count);     -- render the materialized assets
     elsif upper(l_job.source_type) = 'QUERY' then
       l_kml := build_query_document(l_job, l_count);
@@ -957,6 +967,9 @@ as
     end;
   exception
     when others then
+      if dbms_lob.istemporary(l_void) = 1 then   -- free the MATERIALIZE sink if run_query raised
+        dbms_lob.freetemporary(l_void);
+      end if;
       rollback;
       pck_kml_jobs_dml.set_failed(p_job_id,
         sqlerrm || chr(10) || dbms_utility.format_error_backtrace);

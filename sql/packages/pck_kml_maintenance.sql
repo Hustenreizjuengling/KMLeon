@@ -41,8 +41,13 @@ as
 
     l_deleted := pck_kml_jobs_dml.purge(l_statuses, l_retention);
 
-    pck_kml_config_dml.touch_metric('METRIC_LAST_CLEANUP_AT');
-    pck_kml_config_dml.set_number('METRIC_LAST_CLEANUP_DELETED', l_deleted, 'METRIC');
+    -- best-effort metrics: a metric write must not roll back the purge
+    begin
+      pck_kml_config_dml.touch_metric('METRIC_LAST_CLEANUP_AT');
+      pck_kml_config_dml.set_number('METRIC_LAST_CLEANUP_DELETED', l_deleted, 'METRIC');
+    exception when others then
+      pck_kml_log.warn(c_pkg, 'run_cleanup', 'metric update skipped: ' || sqlerrm);
+    end;
     commit;
 
     pck_kml_log.info(c_pkg, 'run_cleanup', 'done; deleted=' || l_deleted);

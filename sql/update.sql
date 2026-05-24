@@ -75,6 +75,6 @@ select object_name, object_type, status
  order by object_type, object_name;
 
 prompt
-prompt KMLeon updated. New global setting DELETE_ASSETS_AFTER_SUCCESS defaults to ON.
+prompt KMLeon updated.
 prompt   - (optional) (re)apply cleanup schedule:  @scheduler/020_maintenance.sql
 prompt ============================================================

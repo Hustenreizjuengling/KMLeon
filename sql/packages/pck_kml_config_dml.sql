@@ -127,7 +127,10 @@ as
     l_val kml_config.value_string%type;
   begin
     select value_string into l_val from kml_config where config_key = p_key;
-    return upper(nvl(l_val, 'N')) in ('Y', 'YES', 'TRUE', '1');
+    if l_val is null then          -- row exists but unset: honour the caller's default
+      return p_default;
+    end if;
+    return upper(l_val) in ('Y', 'YES', 'TRUE', '1');
   exception
     when no_data_found then return p_default;
   end get_boolean;

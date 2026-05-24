@@ -14,7 +14,8 @@
 --   POST   jobs                 create an ASSETS job   (JSON body)        -> {job_id,status}
 --   GET    jobs/{id}            job status + metadata
 --   POST   jobs/{id}/features   add features from a GeoJSON FeatureCollection (JSON body)
---   POST   jobs/{id}/submit     DRAFT -> PENDING (dispatcher picks it up)
+--   POST   jobs/{id}/submit     DRAFT -> PENDING (needs KMLEON_DISPATCHER enabled; it is
+--                               created DISABLED by default -- use /run for on-demand)
 --   POST   jobs/{id}/run        run synchronously now
 --   POST   jobs/{id}/cancel     cancel a DRAFT/PENDING job
 --   GET    jobs/{id}/result     download the KMZ/KML
@@ -272,7 +273,11 @@ begin
         htp.p('{"job_id":' || :id || ',"status":"CANCELLED"}');
       exception
         when others then
-          if sqlcode = -20811 then            -- not found or not cancellable (running/finished)
+          if sqlcode = -20813 then            -- job not found
+            :status_code := 404;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job not found"}');
+          elsif sqlcode = -20811 then         -- not cancellable (running/finished)
             :status_code := 409;
             owa_util.mime_header('application/json');
             htp.p('{"error":"job cannot be cancelled in its current state"}');

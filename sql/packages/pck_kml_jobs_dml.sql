@@ -223,7 +223,7 @@ as
     p_statuses        in varchar2 default 'COMPLETED,CANCELLED',
     p_older_than_days in number   default 30
   ) return pls_integer is
-    l_norm varchar2(200) := upper(replace(p_statuses, ' '));  -- e.g. ',COMPLETED,CANCELLED,'
+    l_norm varchar2(200) := upper(replace(p_statuses, ' '));  -- e.g. 'COMPLETED,CANCELLED' (commas added at the instr call)
     l_rows pls_integer;
   begin
     delete from kml_jobs

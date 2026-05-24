@@ -261,10 +261,12 @@ as
 
 
   procedure cancel_job(p_job_id in number) is
+    l_job kml_jobs%rowtype;
   begin
+    l_job := pck_kml_jobs_dml.get(p_job_id);   -- raises -20813 if the job does not exist
     if pck_kml_jobs_dml.cancel(p_job_id) = 0 then
       raise_application_error(-20811,
-        'Job ' || p_job_id || ' cannot be cancelled (not found or already running/finished).');
+        'Job ' || p_job_id || ' cannot be cancelled (status ' || l_job.status || '; only DRAFT/PENDING).');
     end if;
     commit;
   end cancel_job;
