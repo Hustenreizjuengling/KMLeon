@@ -46,18 +46,14 @@ point-only styling so it renders points, lines and polygons from one geojson sou
 - `.apex/apexlang.json` `mmdVersion` must match the instance (`26.1.0+3102`).
 
 ## Import (App Builder or SQLcl)
-- **SQLcl** (connect as the schema that owns the KMLeon objects):
+- **SQLcl** (run from the repo root, connected as the schema that owns the KMLeon objects):
   ```bash
-  apex validate -input C:\Users\Tobias\Documents\DEV\kmleon_apex_demo
-  apex import   -input C:\Users\Tobias\Documents\DEV\kmleon_apex_demo
+  apex validate -input apex_demo
+  apex import   -input apex_demo
   ```
 - **App Builder**: zip the app folder and import the zip (App Builder ▸ Import).
 
-Then seed data and open the app:
-```bash
-@C:\Users\Tobias\Documents\DEV\kmleon_apex_demo\demo_data.sql
+Then seed data (also creates the `kml_demo_slow` helper for the Async page) and open the app:
+```sql
+@apex_demo/demo_data.sql
 ```
-
-## Still to add (next iteration, against live `apex validate`)
-*New job* (form + create/run process), *Process PENDING* button, BLOB download —
-using the Dynamic-Action / process syntax now visible in the reference export.
