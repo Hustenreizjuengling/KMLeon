@@ -17,9 +17,11 @@ page 8 (
                     clearInterval(window.kmleonAsyncTimer);
                 }
                 window.kmleonAsyncTimer = setInterval(function () {
-                    var r = apex.region("status");
-                    if (r) { r.refresh(); }
-                }, 3000);
+                    ["running", "status"].forEach(function (id) {
+                        var r = apex.region(id);
+                        if (r) { r.refresh(); }
+                    });
+                }, 2000);
             })();
             ```
     }
@@ -51,6 +53,13 @@ page 8 (
                   returns instantly and the status list below refreshes every 3&nbsp;s so you watch
                   <b>PENDING &rarr; RUNNING &rarr; COMPLETED</b>; <b>Sync</b> uses
                   <code>run_now</code> and blocks this request until the build finishes.
+                </p>
+                <p class="u-textGrey">
+                  The <b>Scheduler jobs running now</b> table reads
+                  <code>USER_SCHEDULER_JOBS</code>/<code>USER_SCHEDULER_RUNNING_JOBS</code>:
+                  launch two async jobs back-to-back and watch whether both show
+                  <b>RUNNING</b> at once or one sits <b>SCHEDULED</b> &mdash; that tells you if the
+                  database is running them in parallel or throttling concurrency.
                 </p>
                 ```
         }
@@ -166,6 +175,116 @@ page 8 (
         behavior {
             action: definedByDynamicAction
         }
+    )
+
+    region running (
+        name: Scheduler jobs running now (auto-refresh)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select j.job_name,
+                       j.state,
+                       round(extract(day    from r.elapsed_time) * 86400
+                           + extract(hour   from r.elapsed_time) * 3600
+                           + extract(minute from r.elapsed_time) * 60
+                           + extract(second from r.elapsed_time)) as elapsed_s,
+                       r.session_id,
+                       r.resource_consumer_group,
+                       to_char(j.last_start_date, 'HH24:MI:SS') as started
+                  from user_scheduler_jobs j
+                  left join user_scheduler_running_jobs r
+                         on r.job_name = j.job_name
+                 where j.job_name like 'KMLEON\_RUN\_%' escape '\'
+                 order by j.state, j.job_name
+                ```
+        }
+        layout {
+            sequence: 15
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        messages {
+            whenNoDataFound: No one-shot async jobs are active right now.
+        }
+
+        column JOB_NAME (
+            type: plainText
+            heading {
+                heading: Scheduler job
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column STATE (
+            type: plainText
+            heading {
+                heading: State
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column ELAPSED_S (
+            type: plainText
+            heading {
+                heading: Elapsed (s)
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column SESSION_ID (
+            type: plainText
+            heading {
+                heading: Session
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column RESOURCE_CONSUMER_GROUP (
+            type: plainText
+            heading {
+                heading: Consumer group
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column STARTED (
+            type: plainText
+            heading {
+                heading: Started
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: STRING
+            }
+        )
     )
 
     region status (

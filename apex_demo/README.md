@@ -24,8 +24,11 @@ repo under `apex_demo/`. Built on top of a **real frontend-exported APEXLang app
   possible) and run it via a **Run mode** toggle to compare: *Async*
   (`submit_job(p_async => true)`, returns instantly, status report **auto-refreshes
   every 3 s** `PENDING → RUNNING → COMPLETED`) vs *Sync* (`run_now`, blocks the request
-  until done). (Run `demo_data.sql` once first; it creates the `kml_demo_slow` helper
-  this page relies on. Requires the **CREATE JOB** privilege.)
+  until done). A **Scheduler jobs running now** table (`USER_SCHEDULER_JOBS` +
+  `USER_SCHEDULER_RUNNING_JOBS`, auto-refreshing) shows whether two async jobs run in
+  parallel (`RUNNING`) or one is throttled (`SCHEDULED`). (Run `demo_data.sql` once
+  first; it creates the `kml_demo_slow` helper this page relies on. Requires the
+  **CREATE JOB** privilege.)
 - **5 Logs** — IR over `KML_LOG`.
 - **7 Settings** — edit the cleanup job (`CLEANUP_*` in `KML_CONFIG`): enabled,
   interval, retention, statuses. *Save and apply schedule* writes via
