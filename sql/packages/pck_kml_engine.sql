@@ -63,6 +63,19 @@ create or replace package body pck_kml_engine
 as
 
   --==============================================================================
+  -- Body-level declarations
+  -- (PL/SQL requires all type/variable declarations BEFORE the first subprogram.)
+  --==============================================================================
+
+  -- A folder path split into its segments (e.g. 'Europe/Germany' -> Europe, Germany).
+  type t_seg_tab is table of varchar2(1000);
+
+  -- Per-build shared-style registry: maps a <Style> XML block to its assigned id.
+  type t_style_map is table of pls_integer index by varchar2(32767);
+  g_styles    t_style_map;
+  g_style_seq pls_integer := 0;
+
+  --==============================================================================
   -- Scalar helpers
   --==============================================================================
 
@@ -358,10 +371,8 @@ as
   end close_document;
 
 
-  -- A folder path split into its segments (e.g. 'Europe/Germany' -> Europe, Germany).
-  type t_seg_tab is table of varchar2(1000);
-
   -- Split a '/'-separated folder path into trimmed, non-empty segments.
+  -- (type t_seg_tab is declared at the top of the body.)
   function split_path(p_path in varchar2) return t_seg_tab is
     l_segs t_seg_tab := t_seg_tab();
     l_seg  varchar2(1000);
@@ -426,12 +437,8 @@ as
 
   --==============================================================================
   -- Shared styles: dedupe inline <Style> blocks into <Style id> defs + styleUrls
+  -- (type t_style_map + g_styles/g_style_seq are declared at the top of the body.)
   --==============================================================================
-
-  -- Per-build registry: maps a <Style> XML block to its assigned id number.
-  type t_style_map is table of pls_integer index by varchar2(32767);
-  g_styles    t_style_map;
-  g_style_seq pls_integer := 0;
 
   procedure reset_styles is
   begin
