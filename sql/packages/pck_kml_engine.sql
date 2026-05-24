@@ -557,7 +557,7 @@ as
     l_exec   integer;
     l_open   t_seg_tab := t_seg_tab();   -- open folder path stack (STREAM only)
 
-    type t_meta is record (role varchar2(20), fetch varchar2(5), alias varchar2(128));
+    type t_meta is record (role varchar2(20), fetch_kind varchar2(5), alias varchar2(128));
     type t_meta_tab is table of t_meta index by pls_integer;
     l_meta t_meta_tab;
 
@@ -618,7 +618,7 @@ as
     -- read the holder (set by the preceding column_value) as text/number/clob
     function as_vc(p_i in pls_integer) return varchar2 is
     begin
-      return case l_meta(p_i).fetch
+      return case l_meta(p_i).fetch_kind
                when 'VC'   then l_vc
                when 'NUM'  then num(l_num)
                when 'DATE' then to_char(l_dat, 'YYYY-MM-DD"T"HH24:MI:SS')
@@ -631,7 +631,7 @@ as
 
     function as_num(p_i in pls_integer) return number is
     begin
-      return case l_meta(p_i).fetch
+      return case l_meta(p_i).fetch_kind
                when 'NUM' then l_num
                when 'VC'  then to_number(l_vc default null on conversion error)
                else null
@@ -641,7 +641,7 @@ as
     function as_clob(p_i in pls_integer) return clob is
     begin
       -- CLOB columns pass through; anything else is rendered to text then promoted
-      return case when l_meta(p_i).fetch = 'CLOB' then l_clob
+      return case when l_meta(p_i).fetch_kind = 'CLOB' then l_clob
                   else to_clob(as_vc(p_i))
              end;
     end as_clob;
@@ -685,28 +685,28 @@ as
         l_m.role  := role_of(l_desc_t(i).col_name);
         begin
           if l_m.role = 'GEOM_SDO' then
-            l_m.fetch := 'SDO';  dbms_sql.define_column(l_c, i, l_sdo);
+            l_m.fetch_kind := 'SDO';  dbms_sql.define_column(l_c, i, l_sdo);
           elsif l_desc_t(i).col_type = 112 then           -- CLOB
-            l_m.fetch := 'CLOB'; dbms_sql.define_column(l_c, i, l_clob);
+            l_m.fetch_kind := 'CLOB'; dbms_sql.define_column(l_c, i, l_clob);
           elsif l_desc_t(i).col_type = 2 then             -- NUMBER
-            l_m.fetch := 'NUM';  dbms_sql.define_column(l_c, i, l_num);
+            l_m.fetch_kind := 'NUM';  dbms_sql.define_column(l_c, i, l_num);
           elsif l_desc_t(i).col_type = 12 then            -- DATE
-            l_m.fetch := 'DATE'; dbms_sql.define_column(l_c, i, l_dat);
+            l_m.fetch_kind := 'DATE'; dbms_sql.define_column(l_c, i, l_dat);
           elsif l_desc_t(i).col_type = 180 then           -- TIMESTAMP
-            l_m.fetch := 'TS';   dbms_sql.define_column(l_c, i, l_ts);
+            l_m.fetch_kind := 'TS';   dbms_sql.define_column(l_c, i, l_ts);
           elsif l_desc_t(i).col_type = 181 then           -- TIMESTAMP WITH TIME ZONE
-            l_m.fetch := 'TSTZ'; dbms_sql.define_column(l_c, i, l_tstz);
+            l_m.fetch_kind := 'TSTZ'; dbms_sql.define_column(l_c, i, l_tstz);
           elsif l_desc_t(i).col_type in (1, 96) then      -- VARCHAR2 / CHAR
-            l_m.fetch := 'VC';   dbms_sql.define_column(l_c, i, l_vc, 4000);
+            l_m.fetch_kind := 'VC';   dbms_sql.define_column(l_c, i, l_vc, 4000);
           else
-            l_m.fetch := 'SKIP';
+            l_m.fetch_kind := 'SKIP';
             pck_kml_log.warn(c_pkg, 'run_query',
               'column "' || l_desc_t(i).col_name || '" type ' || l_desc_t(i).col_type
               || ' unsupported; CAST to varchar2/number/date/timestamp in the query', p_job.job_id);
           end if;
         exception
           when others then   -- e.g. GEOMETRY aliased onto a non-SDO column: skip it, don't fail the job
-            l_m.fetch := 'SKIP';
+            l_m.fetch_kind := 'SKIP';
             pck_kml_log.warn(c_pkg, 'run_query',
               'column "' || l_desc_t(i).col_name || '" define failed; skipped: ' || sqlerrm, p_job.job_id);
         end;
@@ -727,8 +727,8 @@ as
       l_ext_obj := json_object_t();
 
       for i in 1 .. l_cols loop
-        if l_meta(i).fetch != 'SKIP' then
-          case l_meta(i).fetch
+        if l_meta(i).fetch_kind != 'SKIP' then
+          case l_meta(i).fetch_kind
             when 'SDO'  then dbms_sql.column_value(l_c, i, l_sdo);
             when 'CLOB' then dbms_sql.column_value(l_c, i, l_clob);
             when 'NUM'  then dbms_sql.column_value(l_c, i, l_num);
