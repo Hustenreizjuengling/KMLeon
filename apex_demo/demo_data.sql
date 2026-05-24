@@ -7,6 +7,17 @@
 --------------------------------------------------------------------------------
 set serveroutput on size unlimited
 
+-- Helper for the "Async playground" page (page 8): sleeps per row so a QUERY job
+-- runs long enough to watch it progress asynchronously. DBMS_SESSION.SLEEP is 19c
+-- and PUBLIC (no extra grant). Created in the KMLeon schema so the engine's
+-- definer-rights dynamic SQL can call it.
+create or replace function kml_demo_slow(p_seconds in number) return number is
+begin
+  sys.dbms_session.sleep(nvl(p_seconds, 1));
+  return nvl(p_seconds, 1);
+end;
+/
+
 declare
   l_job number;
   l_n   number;

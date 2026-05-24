@@ -1,0 +1,373 @@
+page 8 (
+    name: Async playground
+    alias: ASYNC
+    title: KMLeon - Async playground
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    javaScript {
+        executeWhenPageLoads:
+            ```javascript-browser
+            (function () {
+                if (window.kmleonAsyncTimer) {
+                    clearInterval(window.kmleonAsyncTimer);
+                }
+                window.kmleonAsyncTimer = setInterval(function () {
+                    var r = apex.region("status");
+                    if (r) { r.refresh(); }
+                }, 3000);
+            })();
+            ```
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region intro (
+        name: Fire-and-forget
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        source {
+            htmlCode:
+                ```html
+                <p class="u-textGrey">
+                  This builds a deliberately <b>slow</b> QUERY job: each generated point calls
+                  <code>kml_demo_slow(:secs)</code> (a per-row sleep), so the whole build takes
+                  roughly <i>points &times; seconds</i>. It is launched with
+                  <code>submit_job(p_async =&gt; true)</code> &mdash; it runs in its own
+                  background job, the button returns instantly, and the status list below
+                  refreshes every 3&nbsp;s so you can watch <b>PENDING &rarr; RUNNING &rarr;
+                  COMPLETED</b> without the page blocking.
+                </p>
+                ```
+        }
+    )
+
+    pageItem P8_POINTS (
+        type: numberField
+        label {
+            label: Points
+        }
+        layout {
+            sequence: 10
+            region: @intro
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+            icon: fa-map-marker
+        }
+        help {
+            helpText: How many points the query generates (one slow row each).
+        }
+    )
+
+    pageItem P8_SECONDS (
+        type: numberField
+        label {
+            label: Seconds per point
+        }
+        layout {
+            sequence: 20
+            region: @intro
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+            icon: fa-clock-o
+        }
+        help {
+            helpText: Sleep per generated row. Total build time is about points x seconds.
+        }
+    )
+
+    pageItem P8_FORMAT (
+        type: selectList
+        label {
+            label: Output
+        }
+        layout {
+            sequence: 30
+            region: @intro
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'KML (text)'   as d, 'KML' as r from dual
+                union all
+                select 'KMZ (zipped)' as d, 'KMZ' as r from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    button go (
+        buttonName: GO
+        label: Create and run async
+        layout {
+            sequence: 40
+            region: @intro
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    region status (
+        name: Live job status (auto-refresh)
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select job_id,
+                       document_name,
+                       status,
+                       case status
+                         when 'COMPLETED' then 'u-success'
+                         when 'FAILED'    then 'u-danger'
+                         when 'RUNNING'   then 'u-warning'
+                         when 'PENDING'   then 'u-info'
+                         else 'u-normal'
+                       end as status_css,
+                       case
+                         when status = 'RUNNING' and started_at is not null
+                           then round((cast(systimestamp as date) - cast(started_at as date)) * 86400)
+                         when finished_at is not null and started_at is not null
+                           then round((cast(finished_at as date) - cast(started_at as date)) * 86400)
+                       end as seconds,
+                       asset_count,
+                       to_char(started_at,  'HH24:MI:SS') as started,
+                       to_char(finished_at, 'HH24:MI:SS') as finished
+                  from kml_jobs
+                 order by job_id desc
+                 fetch first 15 rows only
+                ```
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+
+        column JOB_ID (
+            type: plainText
+            heading {
+                heading: Job
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column DOCUMENT_NAME (
+            type: plainText
+            heading {
+                heading: Document
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column STATUS (
+            type: plainText
+            heading {
+                heading: Status
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: STRING
+            }
+            columnFormatting {
+                htmlExpression: <span class='t-Badge &STATUS_CSS.'>&STATUS.</span>
+            }
+        )
+        column STATUS_CSS (
+            type: hidden
+            heading {
+                heading: Status CSS
+            }
+            layout {
+                sequence: 35
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column SECONDS (
+            type: plainText
+            heading {
+                heading: Seconds
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column ASSET_COUNT (
+            type: plainText
+            heading {
+                heading: Features
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column STARTED (
+            type: plainText
+            heading {
+                heading: Started
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column FINISHED (
+            type: plainText
+            heading {
+                heading: Finished
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: STRING
+            }
+        )
+    )
+
+    process init-defaults (
+        name: Initialise inputs
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P8_POINTS  := nvl(:P8_POINTS, 8);
+                  :P8_SECONDS := nvl(:P8_SECONDS, 3);
+                  :P8_FORMAT  := nvl(:P8_FORMAT, 'KML');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-go (
+        name: Launch async job
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @go
+        }
+
+        action do-launch (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P8_POINTS,P8_SECONDS,P8_FORMAT
+                plsqlCode:
+                    ```plsql
+                    declare
+                      l_job number;
+                    begin
+                      l_job := pck_kml_job_api.create_job_from_query(
+                        p_document_name => 'Async demo (' || :P8_POINTS || ' pts x ' || :P8_SECONDS || 's)',
+                        p_output_format => nvl(:P8_FORMAT, 'KML'),
+                        p_source_binds  => '{"secs":"' || :P8_SECONDS || '","n":"' || :P8_POINTS || '"}',
+                        p_source_query  => q'[
+                            select sdo_geometry(2001, 4326,
+                                     sdo_point_type(13.4 + dbms_random.value(-3, 3),
+                                                    52.5 + dbms_random.value(-2, 2), null),
+                                     null, null)                    as geometry,
+                                   'Point ' || level                  as name,
+                                   'Async demo'                       as folder_name,
+                                   kml_demo_slow(:secs)               as delayed_note
+                              from dual
+                            connect by level <= :n
+                        ]');
+                      commit;
+                      pck_kml_job_api.submit_job(l_job, p_async => true);
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-status (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @status
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action msg-launched (
+            action: showSuccessMessage
+            settings {
+                message: Job launched in the background. Watch the status list update below.
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

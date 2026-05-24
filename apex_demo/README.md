@@ -19,6 +19,12 @@ repo under `apex_demo/`. Built on top of a **real frontend-exported APEXLang app
   `itemIsNotNull P1_JOB_ID`). Actions run via Dynamic Actions → `PCK_KML_*`.
 - **3 New job** — modern form (floating labels, format dropdown) + *Create from
   GeoJSON & run* / *Create from SELECT & run*.
+- **8 Async playground** — build a deliberately slow `QUERY` job (`points × seconds`,
+  via the `kml_demo_slow` per-row sleep helper), launch it with
+  `submit_job(p_async => true)`, and watch a status report **auto-refresh every 3 s**
+  (`PENDING → RUNNING → COMPLETED`) while the page stays responsive — the demo of the
+  one-shot background run. (Run `demo_data.sql` once first; it creates the
+  `kml_demo_slow` helper this page relies on. Requires the **CREATE JOB** privilege.)
 - **5 Logs** — IR over `KML_LOG`.
 - **7 Settings** — edit the cleanup job (`CLEANUP_*` in `KML_CONFIG`): enabled,
   interval, retention, statuses. *Save and apply schedule* writes via
