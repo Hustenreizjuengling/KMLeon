@@ -82,7 +82,17 @@ as
     p_visibility       in varchar2 default 'Y'
   ) return number;
 
-  procedure submit_job(p_job_id in number);   -- DRAFT -> PENDING; commits
+  -- DRAFT -> PENDING; commits. With p_async => true it ALSO launches a one-shot
+  -- background job (run_async) so the job runs immediately without waiting for the
+  -- KMLEON_DISPATCHER cycle (which is disabled by default).
+  procedure submit_job(p_job_id in number, p_async in boolean default false);
+
+  -- Run a job immediately in its OWN one-shot DBMS_SCHEDULER job (non-blocking,
+  -- runs in a background session, auto-drops when done). The job must be persisted
+  -- (committed) first; create_job + commit, or submit_job, satisfy that. Needs the
+  -- CREATE JOB privilege. Use run_now instead to run synchronously in this session.
+  procedure run_async(p_job_id in number);
+
   procedure run_now(p_job_id in number);      -- run synchronously; commits
   procedure cancel_job(p_job_id in number);   -- DRAFT/PENDING -> CANCELLED; commits
 
@@ -209,7 +219,26 @@ as
   end add_asset;
 
 
-  procedure submit_job(p_job_id in number) is
+  procedure run_async(p_job_id in number) is
+    l_status kml_jobs.status%type;
+    l_name   varchar2(128);
+  begin
+    l_status := get_status(p_job_id);   -- existence check (raises -20813 if not found)
+    l_name   := dbms_scheduler.generate_job_name('KMLEON_RUN_');
+    dbms_scheduler.create_job(           -- create_job commits, so the row is visible to the bg session
+      job_name   => l_name,
+      job_type   => 'PLSQL_BLOCK',
+      job_action => 'begin pck_kml_engine.run_job(' || p_job_id || '); end;',
+      start_date => systimestamp,
+      enabled    => true,
+      auto_drop  => true,
+      comments   => 'KMLeon: one-shot async run of job ' || p_job_id
+    );
+    pck_kml_log.info(c_pkg, 'run_async', 'launched ' || l_name || ' (from status ' || l_status || ')', p_job_id);
+  end run_async;
+
+
+  procedure submit_job(p_job_id in number, p_async in boolean default false) is
     l_status kml_jobs.status%type;
   begin
     l_status := get_status(p_job_id);
@@ -219,6 +248,9 @@ as
     end if;
     pck_kml_jobs_dml.set_status(p_job_id, 'PENDING');
     commit;
+    if p_async then
+      run_async(p_job_id);   -- run now in its own background job (don't wait for the dispatcher)
+    end if;
   end submit_job;
 
 

@@ -13,6 +13,15 @@ begin
     dbms_scheduler.drop_job('KMLEON_MAINTENANCE', force => true);
   exception when others then null;
   end;
+  -- one-shot async run jobs (PCK_KML_JOB_API.run_async); usually auto-dropped,
+  -- but drop any that are still pending/running so nothing is left orphaned.
+  for j in (select job_name from user_scheduler_jobs
+             where job_name like 'KMLEON\_RUN\_%' escape '\') loop
+    begin
+      dbms_scheduler.drop_job(j.job_name, force => true);
+    exception when others then null;
+    end;
+  end loop;
 end;
 /
 

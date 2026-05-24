@@ -83,6 +83,7 @@ select object_name, object_type, status
 
 prompt
 prompt KMLeon installed.
-prompt   - dispatcher (process PENDING jobs):  @scheduler/010_scheduler.sql
-prompt   - cleanup    (config-driven purge):   @scheduler/020_maintenance.sql
+prompt   Run jobs with PCK_KML_JOB_API.run_async (own background job) or run_now (sync).
+prompt   - optional polled dispatcher (created DISABLED):  @scheduler/010_scheduler.sql
+prompt   - cleanup (config-driven purge):                 @scheduler/020_maintenance.sql
 prompt ============================================================

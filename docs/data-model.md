@@ -185,8 +185,8 @@ Notes:
   JSON; bind values are passed as strings.
 - Supported column data types: VARCHAR2/CHAR, NUMBER, DATE, TIMESTAMP,
   TIMESTAMP WITH TIME ZONE, CLOB, and `SDO_GEOMETRY`. CAST anything else in the SELECT.
-- **Security:** the query runs as the KMLeon (definer) schema in the dispatcher;
-  only trusted callers should enqueue `QUERY` jobs.
+- **Security:** the query runs as the KMLeon (definer) schema in the background/scheduler
+  session (the requester's context is gone); only trusted callers should enqueue `QUERY` jobs.
 
 ## GeoJSON ingestion (external / REST)
 

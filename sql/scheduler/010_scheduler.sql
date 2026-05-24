@@ -4,6 +4,11 @@
 -- Creates a repeating job that drains the PENDING queue by calling
 -- KML_ENGINE.process_pending. Adjust the interval / batch size to taste.
 --
+-- It is created DISABLED by default: the recommended path is to run jobs in
+-- their own one-shot background job via PCK_KML_JOB_API.run_async / submit_job(
+-- p_async => true). Enable this dispatcher only if you prefer a polled PENDING
+-- queue:  exec dbms_scheduler.enable('KMLEON_DISPATCHER');
+--
 -- Run this AFTER install.sql, as the schema that owns the KMLeon objects.
 --------------------------------------------------------------------------------
 
@@ -26,7 +31,7 @@ begin
     job_action      => 'begin pck_kml_engine.process_pending(p_limit => 50); end;',
     start_date      => systimestamp,
     repeat_interval => 'FREQ=MINUTELY; INTERVAL=1',
-    enabled         => true,
+    enabled         => false,   -- DISABLED by default; enable explicitly (see header / below)
     auto_drop       => false,
     comments        => 'KMLeon: process PENDING KML/KMZ jobs'
   );

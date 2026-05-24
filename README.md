@@ -49,8 +49,9 @@
   (`altitudeMode` / `extrude` / `tessellate`). KMZ via `APEX_ZIP`.
 - **Variable metadata per feature** — `name`, `description` (HTML balloon), and any extra
   attributes become `<ExtendedData>` automatically.
-- **Run it your way.** Synchronous (`run_now`) or async via the `KMLEON_DISPATCHER`
-  scheduler job that drains the `PENDING` queue by priority.
+- **Run it your way.** Synchronous (`run_now`), fire-and-forget in its own one-shot
+  background job (`run_async` / `submit_job(p_async => true)`), or via the optional
+  `KMLEON_DISPATCHER` queue (created **disabled** — enable it if you prefer polling).
 - **Completion e-mail.** `PCK_KML_NOTIFY` notifies on COMPLETED/FAILED with the result
   attached — generic and best-effort, with `resolve_recipient` / `send_mail` hooks.
 - **Operational config & metrics.** A typed `KML_CONFIG` store keeps behaviour settings and
@@ -74,7 +75,10 @@
                        ├─ PCK_KML_NOTIFY ──────────► completion e-mail (best-effort)
                        └─ free assets (DELETE_ASSETS_AFTER_SUCCESS) + stamp metrics
 
-  DBMS_SCHEDULER ─ KMLEON_DISPATCHER  ──► PCK_KML_ENGINE.process_pending  (drain PENDING)
+  run it:  run_now (synchronous)  |  run_async / submit_job(p_async) (own one-shot job)
+           |  submit_job → optional KMLEON_DISPATCHER queue (disabled by default)
+
+  DBMS_SCHEDULER ─ KMLEON_DISPATCHER  ──► PCK_KML_ENGINE.process_pending  (drain PENDING; off by default)
                  └ KMLEON_MAINTENANCE ──► PCK_KML_MAINTENANCE.cleanup     (purge old jobs)
 
   KML_CONFIG : SETTINGs (behaviour) + METRICs (last created / completed / failed / cleanup)
@@ -112,7 +116,7 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 ```sql
 -- from the sql/ directory, as the schema that will own KMLeon
 sqlplus kmleon/****@db @install.sql
-@scheduler/010_scheduler.sql      -- enable the background dispatcher
+@scheduler/010_scheduler.sql      -- optional polled dispatcher (created DISABLED by default)
 ```
 
 Updating an existing install (non-destructive — keeps your data): `@update.sql`. It
@@ -147,10 +151,21 @@ begin
            p_name         => 'Frankfurt');
 
   commit;
-  pck_kml_job_api.submit_job(l_job);     -- dispatcher runs it; or run_now(l_job)
+  pck_kml_job_api.run_async(l_job);      -- run now in its own background job (non-blocking)
+  -- or: run_now(l_job) synchronous · submit_job(l_job) queue · submit_job(l_job, true) queue+async
 end;
 /
 ```
+
+**Running a job** (same for ASSETS / QUERY / GeoJSON — the source only changes how it's
+built):
+
+| Call | Runs | Blocks caller? |
+|---|---|---|
+| `run_now(id)` | in your session, now | yes |
+| `run_async(id)` | in its own one-shot `DBMS_SCHEDULER` job, now | no |
+| `submit_job(id)` | sets `PENDING` for the `KMLEON_DISPATCHER` queue (disabled by default) | no |
+| `submit_job(id, p_async => true)` | `PENDING` **and** launches it immediately (run_async) | no |
 </details>
 
 <details>
