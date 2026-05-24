@@ -25,6 +25,7 @@
 - [Requirements](#requirements)
 - [Install](#install)
 - [Usage](#usage)
+- [Demo app](#demo-app)
 - [Feature mapping contract](#feature-mapping-contract)
 - [Conventions](#conventions)
 - [Roadmap](#roadmap)
@@ -212,6 +213,15 @@ PL/SQL API — no manual clicking) lives at
 Workshop → SQL Scripts**. The `QUERY` source is deliberately **not** exposed over
 REST; secure the module before using it (see the script's header).
 </details>
+
+## Demo app
+
+A small **APEX 26.1** app (human-readable *APEXLang* `.apx` format) lives under
+[`apex_demo/`](apex_demo/). It exercises the full toolkit — create a job from GeoJSON
+or a `SELECT`, run it, browse jobs and their assets, preview geometries on a Map region,
+download the KML/KMZ, and inspect `KML_LOG`. Import it with SQLcl
+(`apex import -input apex_demo`) or as a zip via App Builder, then seed with
+`apex_demo/demo_data.sql`. See [`apex_demo/README.md`](apex_demo/README.md).
 
 ## Feature mapping contract
 

@@ -1,0 +1,305 @@
+page 3 (
+    name: New job
+    alias: NEW-JOB
+    title: KMLeon - New job
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region hdr (
+        name: Job
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P3_DOCUMENT_NAME (
+        type: textField
+        label {
+            label: Document name
+        }
+        layout {
+            sequence: 10
+            region: @hdr
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+            valuePlaceholder: e.g. Stores by region
+            icon: fa-file-o
+        }
+        validation {
+            valueRequired: true
+        }
+        help {
+            helpText: Becomes the KML document name.
+        }
+    )
+
+    pageItem P3_OUTPUT_FORMAT (
+        type: selectList
+        label {
+            label: Output format
+        }
+        layout {
+            sequence: 20
+            region: @hdr
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'KMZ (zipped)' as d, 'KMZ' as r from dual
+                union all
+                select 'KML (text)'   as d, 'KML' as r from dual
+                ```
+            displayNullValue: false
+        }
+        validation {
+            valueRequired: true
+        }
+        help {
+            helpText: KMZ requires APEX_ZIP; KML is plain text.
+        }
+    )
+
+    pageItem P3_NOTIFY_EMAIL (
+        type: textField
+        label {
+            label: Notify e-mail
+        }
+        layout {
+            sequence: 30
+            region: @hdr
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            valuePlaceholder: name@example.com
+            icon: fa-envelope-o
+        }
+        help {
+            helpText: Optional. Stored on the job for PCK_KML_NOTIFY.
+        }
+    )
+
+    region from-geojson (
+        name: From GeoJSON
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P3_GEOJSON (
+        type: textarea
+        label {
+            label: GeoJSON FeatureCollection
+        }
+        layout {
+            sequence: 10
+            region: @from-geojson
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            valuePlaceholder: Paste a GeoJSON FeatureCollection here
+        }
+        help {
+            helpText: Reserved property names (NAME, FOLDER_NAME, LINE_COLOR, ...) map to columns; everything else becomes ExtendedData.
+        }
+    )
+
+    button create-assets (
+        buttonName: CREATE_ASSETS
+        label: Create from GeoJSON and run
+        layout {
+            sequence: 20
+            region: @from-geojson
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    region from-query (
+        name: From SELECT (in-database)
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P3_QUERY (
+        type: textarea
+        label {
+            label: SELECT statement
+        }
+        layout {
+            sequence: 10
+            region: @from-query
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            valuePlaceholder: select shape as geometry, name, region as folder_name from stores
+        }
+        help {
+            helpText: Column aliases drive the output (GEOMETRY / GEOMETRY_GEOJSON, NAME, FOLDER_NAME, *_COLOR, ...). Runs as this schema.
+        }
+    )
+
+    button create-query (
+        buttonName: CREATE_QUERY
+        label: Create from SELECT and run
+        layout {
+            sequence: 20
+            region: @from-query
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    dynamicAction da-create-assets (
+        name: Create assets job
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @create-assets
+        }
+
+        action run-create-assets (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P3_DOCUMENT_NAME,P3_OUTPUT_FORMAT,P3_NOTIFY_EMAIL,P3_GEOJSON
+                plsqlCode:
+                    ```plsql
+                    declare
+                      l_job number;
+                      l_n   number;
+                    begin
+                      l_job := pck_kml_job_api.create_job(
+                                 p_document_name => :P3_DOCUMENT_NAME,
+                                 p_output_format => nvl(:P3_OUTPUT_FORMAT, 'KMZ'),
+                                 p_notify_email  => :P3_NOTIFY_EMAIL);
+                      if :P3_GEOJSON is not null then
+                        l_n := pck_kml_job_api.add_features_geojson(l_job, :P3_GEOJSON);
+                      end if;
+                      commit;
+                      pck_kml_job_api.run_now(l_job);
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action msg-assets (
+            action: showSuccessMessage
+            settings {
+                message: Job created and run. Open "Jobs" to see it.
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-create-query (
+        name: Create query job
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @create-query
+        }
+
+        action run-create-query (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P3_DOCUMENT_NAME,P3_OUTPUT_FORMAT,P3_NOTIFY_EMAIL,P3_QUERY
+                plsqlCode:
+                    ```plsql
+                    declare
+                      l_job number;
+                    begin
+                      l_job := pck_kml_job_api.create_job_from_query(
+                                 p_document_name => :P3_DOCUMENT_NAME,
+                                 p_source_query  => :P3_QUERY,
+                                 p_output_format => nvl(:P3_OUTPUT_FORMAT, 'KMZ'),
+                                 p_notify_email  => :P3_NOTIFY_EMAIL);
+                      commit;
+                      pck_kml_job_api.run_now(l_job);
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action msg-query (
+            action: showSuccessMessage
+            settings {
+                message: Query job created and run. Open "Jobs" to see it.
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

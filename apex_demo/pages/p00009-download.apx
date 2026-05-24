@@ -1,0 +1,87 @@
+page 9 (
+    name: Download
+    alias: DOWNLOAD
+    title: Download
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region params (
+        name: Download
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P9_JOB_ID (
+        type: hidden
+        layout {
+            sequence: 1
+            region: @params
+            slot: regionBody
+        }
+    )
+
+    process stream-result (
+        name: Stream result file
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_fmt   kml_jobs.output_format%type;
+                  l_kmz   blob;
+                  l_kml   clob;
+                  l_blob  blob;
+                  l_fname varchar2(400);
+                  l_dst   integer := 1;
+                  l_src   integer := 1;
+                  l_ctx   integer := dbms_lob.default_lang_ctx;
+                  l_w     integer;
+                begin
+                  select output_format, result_kmz, result_kml,
+                         nvl(output_filename, 'kmleon_' || job_id)
+                    into l_fmt, l_kmz, l_kml, l_fname
+                    from kml_jobs
+                   where job_id = to_number(:P9_JOB_ID);
+
+                  if l_fmt = 'KMZ' then
+                    sys.owa_util.mime_header('application/vnd.google-earth.kmz', false);
+                    sys.htp.p('Content-Disposition: attachment; filename="' || l_fname || '.kmz"');
+                    sys.owa_util.http_header_close;
+                    sys.wpg_docload.download_file(l_kmz);
+                  else
+                    dbms_lob.createtemporary(l_blob, true);
+                    dbms_lob.converttoblob(l_blob, l_kml, dbms_lob.lobmaxsize, l_dst, l_src,
+                                           nls_charset_id('AL32UTF8'), l_ctx, l_w);
+                    sys.owa_util.mime_header('application/vnd.google-earth.kml+xml', false);
+                    sys.htp.p('Content-Disposition: attachment; filename="' || l_fname || '.kml"');
+                    sys.owa_util.http_header_close;
+                    sys.wpg_docload.download_file(l_blob);
+                  end if;
+
+                  apex_application.stop_apex_engine;
+                exception
+                  when no_data_found then
+                    null;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+)

@@ -1,0 +1,761 @@
+page 1 (
+    name: Jobs
+    alias: HOME
+    title: KMLeon Jobs
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region sel (
+        name: Selected job
+        type: staticContent
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            template: @/blank-with-attributes
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P1_JOB_ID (
+        type: hidden
+        layout {
+            sequence: 1
+            region: @sel
+            slot: regionBody
+        }
+    )
+
+    button new-job (
+        buttonName: NEW_JOB
+        label: New job
+        layout {
+            sequence: 1
+            slot: body
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 3
+            }
+        }
+    )
+
+    button process-pending (
+        buttonName: PROCESS_PENDING
+        label: Process PENDING
+        layout {
+            sequence: 2
+            slot: body
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    button rerun (
+        buttonName: RERUN
+        label: Re-run selected
+        layout {
+            sequence: 3
+            slot: body
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P1_JOB_ID
+        }
+    )
+
+    button cancel-job (
+        buttonName: CANCEL_JOB
+        label: Cancel selected
+        layout {
+            sequence: 4
+            slot: body
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P1_JOB_ID
+        }
+    )
+
+    button download (
+        buttonName: DOWNLOAD
+        label: Download selected
+        layout {
+            sequence: 5
+            slot: body
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 9
+                items: {
+                    P9_JOB_ID: &P1_JOB_ID.
+                }
+            }
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P1_JOB_ID
+        }
+    )
+
+    region metrics (
+        name: Overview
+        type: cards
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 1 as id, 'Total jobs' as title, count(*) as val, 'fa-list-alt' as icon from kml_jobs
+                union all
+                select 2, 'Completed', count(case when status = 'COMPLETED' then 1 end), 'fa-check-circle' from kml_jobs
+                union all
+                select 3, 'Failed', count(case when status = 'FAILED' then 1 end), 'fa-exclamation-triangle' from kml_jobs
+                union all
+                select 4, 'Pending / running', count(case when status in ('PENDING','RUNNING') then 1 end), 'fa-clock-o' from kml_jobs
+                order by id
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+            columnSpan: 8
+        }
+        appearance {
+            template: @/cards-container
+            templateOptions: #DEFAULT#
+        }
+        card {
+            primaryKeyColumn1: ID
+        }
+        title {
+            column: TITLE
+        }
+        body {
+            column: VAL
+        }
+        iconAndBadge {
+            iconSource: iconClassColumn
+            iconColumn: ICON
+        }
+        componentAppearance {
+            gridColumns: 2
+        }
+    )
+
+    region map (
+        name: Geometries
+        type: map
+        layout {
+            sequence: 20
+            slot: body
+            columnSpan: 4
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: kmleon-map
+        }
+        map {
+            height: 420
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                rectangleZoom
+                scaleBar
+                overviewMap
+            ]
+        }
+        initialPositionAndZoom {
+            type: basedOnSpatialResults
+        }
+        attributes {
+            messagesPosition: below
+        }
+
+        layer features (
+            name: Features
+            label {
+                label: Features
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select asset_id as id,
+                           name,
+                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                      from kml_job_assets
+                     where job_id = nvl(to_number(:P1_JOB_ID),
+                                        (select max(job_id) from kml_jobs where status = 'COMPLETED'))
+                    ```
+                pageItemsToSubmit: P1_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    region jobs (
+        name: KML / KMZ Jobs
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select job_id,
+                       document_name,
+                       status,
+                       case status
+                         when 'COMPLETED' then 'u-success'
+                         when 'FAILED'    then 'u-danger'
+                         when 'RUNNING'   then 'u-warning'
+                         when 'PENDING'   then 'u-info'
+                         else 'u-normal'
+                       end as status_css,
+                       output_format,
+                       source_type,
+                       asset_count,
+                       result_size_bytes,
+                       notify_email,
+                       created_at,
+                       finished_at,
+                       error_message
+                  from kml_jobs
+                 order by job_id desc
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+            columnSpan: 12
+            startNewRow: true
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 1
+                items: {
+                    P1_JOB_ID: #JOB_ID#
+                }
+            }
+        }
+
+        column JOB_ID (
+            type: plainText
+            heading {
+                heading: Job
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column DOCUMENT_NAME (
+            type: plainText
+            heading {
+                heading: Document
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column STATUS (
+            type: plainText
+            heading {
+                heading: Status
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: STRING
+            }
+            columnFormatting {
+                htmlExpression: <span class='t-Badge &STATUS_CSS.'>&STATUS.</span>
+            }
+        )
+        column STATUS_CSS (
+            type: hidden
+            heading {
+                heading: Status CSS
+            }
+            layout {
+                sequence: 35
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column OUTPUT_FORMAT (
+            type: plainText
+            heading {
+                heading: Format
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column SOURCE_TYPE (
+            type: plainText
+            heading {
+                heading: Source
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column ASSET_COUNT (
+            type: plainText
+            heading {
+                heading: Assets
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column RESULT_SIZE_BYTES (
+            type: plainText
+            heading {
+                heading: Size
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column NOTIFY_EMAIL (
+            type: plainText
+            heading {
+                heading: Notify
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column CREATED_AT (
+            type: plainText
+            heading {
+                heading: Created
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: DATE
+            }
+        )
+        column FINISHED_AT (
+            type: plainText
+            heading {
+                heading: Finished
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: DATE
+            }
+        )
+        column ERROR_MESSAGE (
+            type: plainText
+            heading {
+                heading: Error
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: STRING
+            }
+        )
+    )
+
+    region assets (
+        name: Assets of selected job
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select asset_id,
+                       name,
+                       folder_name,
+                       case when geometry_sdo is not null then 'SDO'
+                            when geometry_geojson is not null then 'GeoJSON'
+                            else '-' end as geom_source,
+                       line_color,
+                       poly_color,
+                       altitude_mode,
+                       display_order
+                  from kml_job_assets
+                 where job_id = nvl(to_number(:P1_JOB_ID),
+                                    (select max(job_id) from kml_jobs where status = 'COMPLETED'))
+                 order by display_order, asset_id
+                ```
+            pageItemsToSubmit: P1_JOB_ID
+        }
+        layout {
+            sequence: 40
+            slot: body
+            columnSpan: 12
+            startNewRow: true
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+
+        column ASSET_ID (
+            type: plainText
+            heading {
+                heading: Asset
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column NAME (
+            type: plainText
+            heading {
+                heading: Name
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column FOLDER_NAME (
+            type: plainText
+            heading {
+                heading: Folder
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column GEOM_SOURCE (
+            type: plainText
+            heading {
+                heading: Geometry
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column LINE_COLOR (
+            type: plainText
+            heading {
+                heading: Line
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column POLY_COLOR (
+            type: plainText
+            heading {
+                heading: Poly
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column ALTITUDE_MODE (
+            type: plainText
+            heading {
+                heading: Altitude
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column DISPLAY_ORDER (
+            type: plainText
+            heading {
+                heading: Order
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+    )
+
+    dynamicAction da-process-pending (
+        name: Process pending
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @process-pending
+        }
+
+        action run-pending (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    pck_kml_engine.process_pending;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-jobs (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @jobs
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action notify-done (
+            action: showSuccessMessage
+            settings {
+                message: Pending jobs processed.
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-rerun (
+        name: Re-run selected job
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @rerun
+        }
+
+        action do-rerun (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P1_JOB_ID
+                plsqlCode:
+                    ```plsql
+                    if :P1_JOB_ID is not null then
+                      pck_kml_job_api.run_now(:P1_JOB_ID);
+                    end if;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-after-rerun (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @jobs
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action refresh-assets-rerun (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @assets
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+        action msg-rerun (
+            action: showSuccessMessage
+            settings {
+                message: Selected job re-run.
+            }
+            execution {
+                sequence: 40
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-cancel (
+        name: Cancel selected job
+        execution {
+            sequence: 30
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @cancel-job
+        }
+
+        action do-cancel (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P1_JOB_ID
+                plsqlCode:
+                    ```plsql
+                    if :P1_JOB_ID is not null then
+                      pck_kml_job_api.cancel_job(:P1_JOB_ID);
+                    end if;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-after-cancel (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @jobs
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action msg-cancel (
+            action: showSuccessMessage
+            settings {
+                message: Selected job cancelled.
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

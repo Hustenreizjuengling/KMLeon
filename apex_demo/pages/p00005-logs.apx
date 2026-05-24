@@ -1,0 +1,131 @@
+page 5 (
+    name: Logs
+    alias: LOGS
+    title: KMLeon Logs
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region logs (
+        name: KML_LOG
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select log_id,
+                       log_level,
+                       package_name,
+                       routine_name,
+                       job_id,
+                       message,
+                       created_at
+                  from kml_log
+                 order by log_id desc
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+
+        column LOG_ID (
+            type: plainText
+            heading {
+                heading: Id
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column LOG_LEVEL (
+            type: plainText
+            heading {
+                heading: Level
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column PACKAGE_NAME (
+            type: plainText
+            heading {
+                heading: Package
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column ROUTINE_NAME (
+            type: plainText
+            heading {
+                heading: Routine
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column JOB_ID (
+            type: plainText
+            heading {
+                heading: Job
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column MESSAGE (
+            type: plainText
+            heading {
+                heading: Message
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column CREATED_AT (
+            type: plainText
+            heading {
+                heading: When
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: DATE
+            }
+        )
+    )
+
+)

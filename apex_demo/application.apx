@@ -1,0 +1,65 @@
+app KMLEON (
+    name: KMLeon Demo
+    logo {
+        type: text
+        text: KMLeon
+    }
+    navigation {
+        homeUrl: {
+            page: 1
+        }
+        loginUrl: {
+            page: LOGIN
+        }
+    }
+    navigationMenu {
+        listTemplate: @/side-navigation-menu
+        templateOptions: [
+            #DEFAULT#
+            js-defaultCollapsed
+            js-navCollapsed--hidden
+            t-TreeNav--styleA
+        ]
+        list: @navigation-menu
+    }
+    navigationBar {
+        list: @navigation-bar
+        listTemplate: @/navigation-bar
+        templateOptions: #DEFAULT#
+    }
+    userInterface {
+        currentTheme: @universal-theme
+        globalPage: 0
+        usersCanChooseThemeStyle: true
+    }
+    appFormatMasks {
+        date: DS
+        timestamp: DS
+        timestampTimeZone: DS
+    }
+    authentication {
+        scheme: @oracle-apex-accounts
+    }
+    sessionStateProtection {
+        checksumSalt: 638F8BB0DC21F7E41DC650BEBF56114333945A8275B3A08601836DEC4C8474BC
+    }
+    globalization {
+        primaryLanguage: de
+        autoTimeZone: true
+    }
+    runtime {
+        allowFeedback: true
+        compatibilityMode: 24.2
+    }
+    advanced {
+        modernizeApp: true
+    }
+
+    substitution APP_NAME (
+        value {
+            staticValue: KMLeon Demo
+        }
+    )
+
+)
+

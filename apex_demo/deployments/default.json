@@ -1,0 +1,8 @@
+{
+  "app" : {
+    "id" : 1100,
+    "runtime" : {
+      "debugging" : true
+    }
+  }
+}
