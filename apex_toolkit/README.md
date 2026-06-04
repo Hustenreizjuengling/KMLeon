@@ -71,18 +71,27 @@ it cannot resolve a name.
 
 Two kinds of binds in a `QUERY` source — **auto-classified**:
 - **Engine binds** — whatever names you declare in `source_binds` JSON
-  (e.g. `{"region":"DE"}`); the engine binds them at job time. They stay as `:name`
-  inside the query string.
+  (e.g. `{"region":"DE"}`); the engine binds them at job time.
 - **Inline binds** (caller-resolved, **default**) — every other `:NAME` the helper
-  finds in the query (e.g. `:P200_ID` for an APEX page item). The snippet output
-  splits the q-literal so the *calling* session concatenates the value in *before*
-  the query is stored on the job: `q'~prefix~' || :P200_ID || q'~suffix~'`. The
-  engine never sees those placeholders.
+  finds in the query (e.g. `:P200_ID` for an APEX page item), resolved by the
+  *calling* session at submit time.
 
 The *Inline binds* field on the page is just an explicit override; leave it empty for
-auto-detection. The *Status* line reports both sets. (Validation does not need to strip
-a `WHERE :Px = ...` clause &mdash; `DBMS_SQL.parse` checks syntax + names, not bind
-values.)
+auto-detection. The *Status* line reports both sets and the chosen mode. (Validation
+does not need to strip a `WHERE :Px = ...` clause &mdash; `DBMS_SQL.parse` checks
+syntax + names, not bind values.)
+
+**Bind mode** controls *where* inline binds are baked in:
+
+| Mode | `source_query` | `source_binds` |
+|---|---|---|
+| **`QUERY`** (default) | `q'~...~' || :P200_ID || q'~...~'` (literal) | `q'~{"region":"DE"}~'` (unchanged) |
+| **`JSON`** | `q'~... where id = :P200_ID ...~'` (intact) | `'{"region":"DE","P200_ID":"' || :P200_ID || '"}'` |
+
+`QUERY` is simpler (value visible on the job row); `JSON` keeps the stored SQL clean and
+benefits from Oracle's plan cache because the engine binds the value at run time.
+Inline values are wrapped as JSON strings; Oracle converts to NUMBER on bind when the
+target column type requires it.
 
 ## Key format facts (learned from the reference export)
 - The **app id lives in `deployments/default.json`** (`app.id`), *not* in

@@ -50,19 +50,25 @@ page 10 (
                   <b>Two kinds of binds, auto-classified:</b>
                   <ul>
                     <li><b>Engine binds</b> &mdash; the names you list in <i>Binds (JSON)</i>.
-                      They stay as <code>:name</code> in the query string and are bound at
-                      job time via <code>source_binds</code> (e.g. a static <code>:region</code>
-                      filter).</li>
+                      They are bound at job time by the engine via <code>source_binds</code>
+                      (e.g. a static <code>:region</code> filter).</li>
                     <li><b>Inline binds</b> (default) &mdash; <i>everything else</i> the helper
                       detects in the query (e.g. <code>:P200_ID</code>, an APEX page item).
-                      The output snippet renders them as
-                      <code>q'~prefix~' || :P200_ID || q'~suffix~'</code> so the
-                      <i>calling</i> session resolves them <i>before</i> the query is stored on
-                      the job &mdash; the engine then runs a fully-resolved literal. The
-                      <i>Inline binds</i> field is only needed to force a specific override.</li>
+                      Resolved by the <i>calling</i> session at submit time. The <i>Inline
+                      binds</i> field is only needed to force a specific override.</li>
                   </ul>
-                  The <i>Status</i> below lists both sets so you can see exactly how the helper
-                  classified each placeholder.
+                  <b>Bind mode</b> chooses <i>where</i> inline binds are baked in:
+                  <ul>
+                    <li><b><code>QUERY</code></b> (default) &mdash; value concatenated INTO
+                      <code>source_query</code>, the engine sees a literal:
+                      <code>q'~...~' || :P200_ID || q'~...~'</code>. Simpler, value visible on
+                      the job row.</li>
+                    <li><b><code>JSON</code></b> &mdash; query keeps <code>:NAME</code>, value
+                      lands in <code>source_binds</code> at submit time:
+                      <code>'{"P200_ID":"' || :P200_ID || '",&hellip;}'</code>. Cleaner stored
+                      SQL and better plan-cache reuse.</li>
+                  </ul>
+                  The <i>Status</i> below reports the chosen mode and both bind sets.
                 </p>
                 ```
         }
@@ -123,6 +129,35 @@ page 10 (
         }
         help {
             helpText: Optional override. By default the helper auto-detects every :NAME in the query and treats anything NOT in Binds (JSON) as an inline bind (resolved by the calling session, e.g. an APEX page item). Use this field only to force a specific list (comma-separated, with or without leading :).
+        }
+    )
+
+    pageItem P10_BIND_MODE (
+        type: selectList
+        label {
+            label: Bind mode
+        }
+        layout {
+            sequence: 27
+            region: @input
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Inline in source_query (literal)' as d, 'QUERY' as r from dual
+                union all
+                select 'Inline in source_binds (JSON)'    as d, 'JSON'  as r from dual
+                ```
+            displayNullValue: false
+        }
+        help {
+            helpText: How inline binds are baked in. QUERY (default) -> the value is concatenated INTO source_query and the engine sees a literal. JSON -> the value is concatenated into source_binds JSON; source_query keeps :NAME and the engine binds it at runtime (better plan-cache reuse, cleaner stored SQL).
         }
     )
 
@@ -312,8 +347,9 @@ page 10 (
             plsqlCode:
                 ```plsql
                 begin
-                  :P10_DOC_NAME := nvl(:P10_DOC_NAME, 'My export');
-                  :P10_FORMAT   := nvl(:P10_FORMAT, 'KMZ');
+                  :P10_DOC_NAME  := nvl(:P10_DOC_NAME, 'My export');
+                  :P10_FORMAT    := nvl(:P10_FORMAT, 'KMZ');
+                  :P10_BIND_MODE := nvl(:P10_BIND_MODE, 'QUERY');
                 end;
                 ```
         }
@@ -337,7 +373,7 @@ page 10 (
         action do-analyze (
             action: executeServerSideCode
             settings {
-                itemsToSubmit: P10_QUERY,P10_BINDS,P10_INLINE_BINDS,P10_DOC_NAME,P10_FORMAT
+                itemsToSubmit: P10_QUERY,P10_BINDS,P10_INLINE_BINDS,P10_BIND_MODE,P10_DOC_NAME,P10_FORMAT
                 itemsToReturn: P10_STATUS,P10_COLUMNS,P10_QUERY_CLOB,P10_SNIPPET
                 plsqlCode:
                     ```plsql
@@ -353,6 +389,7 @@ page 10 (
                         p_doc_name     => :P10_DOC_NAME,
                         p_format       => :P10_FORMAT,
                         p_inline_binds => :P10_INLINE_BINDS,
+                        p_bind_mode    => :P10_BIND_MODE,
                         p_columns      => l_cols,
                         p_snippet      => l_snip,
                         p_query_clob   => l_qc,

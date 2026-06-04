@@ -62,6 +62,9 @@ as
     p_doc_name     in  varchar2 default 'My export',
     p_format       in  varchar2 default 'KMZ',
     p_inline_binds in  varchar2 default null,        -- comma-separated APEX item names
+    p_bind_mode    in  varchar2 default 'QUERY',     -- 'QUERY' = inline value via concat into source_query;
+                                                     -- 'JSON'  = inline value via concat into source_binds JSON,
+                                                     --          query keeps :NAME and engine binds at runtime
     p_columns      out clob,
     p_snippet      out clob,
     p_query_clob   out clob,
@@ -236,12 +239,73 @@ as
   end type_name;
 
 
+  -- Build the PL/SQL expression that produces the final source_binds JSON at
+  -- runtime, combining the static engine JSON (p_engine_json) with caller-resolved
+  -- inline binds (p_inline_csv). Inline values are concatenated with ||:NAME|| so
+  -- the calling session resolves them at submit time (e.g. APEX page items).
+  -- All inline values are wrapped as JSON STRINGs (Oracle converts to NUMBER on
+  -- bind if the column type requires it).
+  function build_binds_expr(p_engine_json in clob, p_inline_csv in varchar2) return clob is
+    c_q     constant varchar2(1) := '''';   -- a literal single quote
+    l_eng   varchar2(32767);
+    l_out   clob;
+    l_names varchar2(2000);
+    l_name  varchar2(128);
+    l_idx   pls_integer := 1;
+    l_has   boolean := false;
+  begin
+    if (p_engine_json is null or dbms_lob.getlength(p_engine_json) = 0)
+       and (p_inline_csv is null or trim(p_inline_csv) is null) then
+      return null;
+    end if;
+
+    -- shortcut: no inline binds -> just wrap the engine JSON literally
+    if p_inline_csv is null or trim(p_inline_csv) is null then
+      return qstring(p_engine_json);
+    end if;
+
+    l_out := c_q || '{';
+
+    -- strip the outer braces of the engine JSON and embed its contents
+    if p_engine_json is not null and dbms_lob.getlength(p_engine_json) > 0 then
+      l_eng := trim(p_engine_json);
+      if substr(l_eng, 1, 1) = '{'  then l_eng := substr(l_eng, 2);                       end if;
+      if substr(l_eng, -1)   = '}'  then l_eng := substr(l_eng, 1, length(l_eng) - 1);    end if;
+      l_eng := trim(l_eng);
+      if length(nvl(l_eng, '')) > 0 then
+        l_out := l_out || l_eng;
+        l_has := true;
+      end if;
+    end if;
+
+    -- append each inline bind as: "NAME":"' || :NAME || '"
+    l_names := replace(p_inline_csv, ' ');
+    loop
+      l_name := upper(trim(regexp_substr(l_names, '[^,]+', 1, l_idx)));
+      exit when l_name is null;
+      l_name := ltrim(l_name, ':');
+      if length(l_name) > 0 then
+        if l_has then l_out := l_out || ','; end if;
+        l_out := l_out || '"' || l_name || '":"' || c_q
+                       || ' || :' || l_name || ' || '
+                       || c_q || '"';
+        l_has := true;
+      end if;
+      l_idx := l_idx + 1;
+    end loop;
+
+    l_out := l_out || '}' || c_q;
+    return l_out;
+  end build_binds_expr;
+
+
   procedure query_helper(
     p_query        in  clob,
     p_binds        in  clob     default null,
     p_doc_name     in  varchar2 default 'My export',
     p_format       in  varchar2 default 'KMZ',
     p_inline_binds in  varchar2 default null,
+    p_bind_mode    in  varchar2 default 'QUERY',
     p_columns      out clob,
     p_snippet      out clob,
     p_query_clob   out clob,
@@ -255,7 +319,9 @@ as
     l_q            clob;
     l_engine_csv   varchar2(4000);
     l_inline_csv   varchar2(4000);
-    l_inline_src   varchar2(20);   -- 'explicit' or 'auto'
+    l_inline_src   varchar2(20);     -- 'explicit' or 'auto'
+    l_mode         varchar2(10);     -- 'QUERY' | 'JSON'
+    l_binds_expr   clob;              -- PL/SQL expression for p_source_binds in the snippet
   begin
     p_status     := 'OK -- parsed against engine schema ' || engine_schema;
     p_columns    := to_clob('');
@@ -333,18 +399,37 @@ as
       l_inline_src := 'auto';
     end if;
 
+    -- bind mode: where do inline binds get baked in?
+    l_mode := upper(coalesce(p_bind_mode, 'QUERY'));
+    if l_mode not in ('QUERY', 'JSON') then l_mode := 'QUERY'; end if;
+
     if l_engine_csv is not null then
       p_status := p_status || '; engine binds: ' || l_engine_csv;
     end if;
     if l_inline_csv is not null then
-      p_status := p_status || '; inline binds (' || l_inline_src || '): ' || l_inline_csv;
+      p_status := p_status || '; inline binds (' || l_inline_src || ', mode=' || l_mode || '): ' || l_inline_csv;
     end if;
 
-    if l_inline_csv is not null then
-      l_q := qstring_inline(p_query, l_inline_csv);
+    -- l_q  : the source_query CLOB assignment text
+    -- l_binds_expr : the PL/SQL expression for p_source_binds in the snippet (NULL = omit)
+    if l_mode = 'JSON' and l_inline_csv is not null then
+      -- Path B: query keeps :NAME; values go into source_binds via concat
+      l_q          := qstring(p_query);
+      l_binds_expr := build_binds_expr(p_binds, l_inline_csv);
     else
-      l_q := qstring(p_query);
+      -- Path A (default): inline values into source_query via concat
+      if l_inline_csv is not null then
+        l_q := qstring_inline(p_query, l_inline_csv);
+      else
+        l_q := qstring(p_query);
+      end if;
+      if p_binds is not null and dbms_lob.getlength(p_binds) > 0 then
+        l_binds_expr := qstring(p_binds);
+      else
+        l_binds_expr := null;
+      end if;
     end if;
+
     p_query_clob := 'l_query clob := ' || l_q || ';';
 
     p_snippet := p_snippet
@@ -352,17 +437,23 @@ as
               || '  l_job number;'                                                                       || chr(10)
               || 'begin'                                                                                 || chr(10);
     if l_inline_csv is not null then
-      p_snippet := p_snippet
-                || '  -- Inline binds (' || l_inline_csv || ') are resolved by THIS session' || chr(10)
-                || '  -- (e.g. APEX page items) BEFORE the query is stored on the job.'      || chr(10);
+      if l_mode = 'JSON' then
+        p_snippet := p_snippet
+                  || '  -- Inline binds (' || l_inline_csv || ') are added to source_binds at submit time' || chr(10)
+                  || '  -- (resolved by THIS session, e.g. APEX page items; the engine binds them at run time).' || chr(10);
+      else
+        p_snippet := p_snippet
+                  || '  -- Inline binds (' || l_inline_csv || ') are resolved by THIS session' || chr(10)
+                  || '  -- (e.g. APEX page items) BEFORE the query is stored on the job.'      || chr(10);
+      end if;
     end if;
     p_snippet := p_snippet
               || '  l_job := pck_kml_job_api.create_job_from_query('                                     || chr(10)
               || '    p_document_name => ''' || replace(nvl(p_doc_name,'My export'),'''','''''') || ''',' || chr(10)
               || '    p_output_format => ''' || nvl(upper(p_format),'KMZ') || ''','                      || chr(10);
-    if p_binds is not null and dbms_lob.getlength(p_binds) > 0 then
+    if l_binds_expr is not null then
       p_snippet := p_snippet
-                || '    p_source_binds  => ' || qstring(p_binds) || ',' || chr(10);
+                || '    p_source_binds  => ' || l_binds_expr || ',' || chr(10);
     end if;
     p_snippet := p_snippet
               || '    p_source_query  => ' || l_q || ');'                                                || chr(10)
