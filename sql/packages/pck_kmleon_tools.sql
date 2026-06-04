@@ -32,6 +32,11 @@ as
   -- Friendly name for a DBMS_SQL.DESC_REC3.col_type numeric code.
   function type_name(p_type in number, p_len in number) return varchar2;
 
+  -- The schema unqualified names resolve to inside this package. Because the
+  -- package is AUTHID DEFINER, this is the package owner -- i.e. the schema the
+  -- KMLeon engine will use when it later executes the query.
+  function engine_schema return varchar2;
+
   -- Analyse a candidate SELECT for use as a KMLeon QUERY source.
   --   p_columns    : text table of ALIAS / TYPE / KMLEON ROLE (DBMS_SQL describe)
   --   p_snippet    : full anonymous PL/SQL block calling PCK_KML_JOB_API.create_job_from_query
@@ -108,6 +113,12 @@ as
   end role_of;
 
 
+  function engine_schema return varchar2 is
+  begin
+    return sys_context('USERENV', 'CURRENT_SCHEMA');
+  end engine_schema;
+
+
   function type_name(p_type in number, p_len in number) return varchar2 is
   begin
     return case p_type
@@ -145,7 +156,7 @@ as
     l_bkeys json_key_list;
     l_q     clob;
   begin
-    p_status     := 'OK';
+    p_status     := 'OK -- parsed against engine schema ' || engine_schema;
     p_columns    := to_clob('');
     p_snippet    := to_clob('');
     p_query_clob := to_clob('');
@@ -160,7 +171,9 @@ as
       dbms_sql.parse(l_c, p_query, dbms_sql.native);
     exception
       when others then
-        p_status := 'Parse error: ' || sqlerrm;
+        p_status := 'Parse error in engine schema ' || engine_schema || ': ' || sqlerrm
+                 || ' -- tables in other schemas need qualified names (SCHEMA.TABLE), a synonym in '
+                 || engine_schema || ', or a DB link.';
         if dbms_sql.is_open(l_c) then dbms_sql.close_cursor(l_c); end if;
         return;
     end;

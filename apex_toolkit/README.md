@@ -59,7 +59,14 @@ KMLeon schema):
 | `qstring(p_text)` | wrap a CLOB in a safe `q'<delim>...<delim>'` literal |
 | `role_of(p_alias)` | map a SELECT column alias to its KMLeon role |
 | `type_name(p_type, p_len)` | friendly name for a `DBMS_SQL` column-type code |
+| `engine_schema` | the schema names resolve to here (the engine schema; package is `AUTHID DEFINER`) |
 | `query_helper(p_query, p_binds, …)` | parse + describe + produce snippets (Query helper page) |
+
+Cross-schema notes: the Query helper validates the SELECT **as the engine schema**
+(`PCK_KMLEON_TOOLS` is `AUTHID DEFINER`), so a successful parse means the engine can
+run it. If a table lives in another schema, qualify it (`OTHER_SCHEMA.TABLE`), create a
+synonym in the engine schema, or use a DB link &mdash; the parser will tell you when
+it cannot resolve a name.
 
 ## Key format facts (learned from the reference export)
 - The **app id lives in `deployments/default.json`** (`app.id`), *not* in

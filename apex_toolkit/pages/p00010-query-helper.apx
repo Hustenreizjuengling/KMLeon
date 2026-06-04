@@ -36,6 +36,15 @@ page 10 (
                   <code>&lt;ExtendedData&gt;</code>). The PL/SQL snippets below are produced with
                   safe q-quoting so you can paste them straight into your code.
                 </p>
+                <p class="u-textGrey">
+                  The validation runs <b>as the KMLeon engine schema</b> (the package
+                  <code>PCK_KMLEON_TOOLS</code> is <code>AUTHID DEFINER</code>) &mdash; exactly
+                  the schema the engine will use later to execute the query. The
+                  <i>Status</i> below reports that schema. If a table lives in another schema,
+                  qualify it (<code>OTHER_SCHEMA.TABLE</code>), create a synonym in the engine
+                  schema, or use a DB link &mdash; the parser will tell you if it cannot resolve
+                  a name.
+                </p>
                 ```
         }
     )
