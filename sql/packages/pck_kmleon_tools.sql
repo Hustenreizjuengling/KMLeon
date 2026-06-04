@@ -25,6 +25,20 @@ as
   -- candidate is unsafe (extremely rare for SELECT statements).
   function qstring(p_text in clob) return clob;
 
+  -- Like qstring, but split the literal at every occurrence of each name in
+  -- p_inline_names (comma-separated, without leading ':') so the result becomes
+  -- q'<o>prefix<c>' || :name || q'<o>suffix<c>' -- ready to drop into PL/SQL
+  -- where the CALLING session (e.g. an APEX DA) resolves :name (an APEX item)
+  -- BEFORE the query is stored on the job. Names not listed stay as engine
+  -- binds in the q-literal and are bound at job time via source_binds.
+  function qstring_inline(p_text in clob, p_inline_names in varchar2) return clob;
+
+  -- Scan p_text for :NAME bind placeholders and return the distinct names
+  -- (upper-cased, comma-separated), optionally excluding any in p_exclude_csv
+  -- (also case-insensitive). Used by query_helper to auto-detect which binds
+  -- should be inlined when the caller did not list them explicitly.
+  function detect_binds(p_text in clob, p_exclude_csv in varchar2 default null) return varchar2;
+
   -- Resolve a SELECT column alias to its KMLeon role (the run_query contract):
   -- reserved names map to specific roles, everything else becomes ExtendedData.
   function role_of(p_alias in varchar2) return varchar2;
@@ -43,14 +57,15 @@ as
   --   p_query_clob : one-liner "l_query clob := q'<delim>...<delim>';"
   --   p_status     : 'OK' or the parse/runtime error text
   procedure query_helper(
-    p_query      in  clob,
-    p_binds      in  clob     default null,
-    p_doc_name   in  varchar2 default 'My export',
-    p_format     in  varchar2 default 'KMZ',
-    p_columns    out clob,
-    p_snippet    out clob,
-    p_query_clob out clob,
-    p_status     out varchar2
+    p_query        in  clob,
+    p_binds        in  clob     default null,
+    p_doc_name     in  varchar2 default 'My export',
+    p_format       in  varchar2 default 'KMZ',
+    p_inline_binds in  varchar2 default null,        -- comma-separated APEX item names
+    p_columns      out clob,
+    p_snippet      out clob,
+    p_query_clob   out clob,
+    p_status       out varchar2
   );
 end pck_kmleon_tools;
 /
@@ -119,6 +134,88 @@ as
   end engine_schema;
 
 
+  function qstring_inline(p_text in clob, p_inline_names in varchar2) return clob is
+    type t_delims is varray(9) of varchar2(1);
+    c_open  constant t_delims := t_delims('~','{','[','(','<','#','!','^','*');
+    c_close constant t_delims := t_delims('~','}',']',')','>','#','!','^','*');
+    l_text  clob := p_text;
+    l_names varchar2(2000);
+    l_open  varchar2(1);
+    l_close varchar2(1);
+    l_name  varchar2(128);
+    l_idx   pls_integer := 1;
+    l_out   clob;
+  begin
+    if p_text is null then
+      return null;
+    end if;
+    if p_inline_names is null or trim(p_inline_names) is null then
+      return qstring(p_text);
+    end if;
+
+    -- choose a safe q-delimiter for the WHOLE wrapped text (closer not in text)
+    for i in 1 .. c_open.count loop
+      if dbms_lob.instr(p_text, c_close(i) || '''') = 0 then
+        l_open  := c_open(i);
+        l_close := c_close(i);
+        exit;
+      end if;
+    end loop;
+    if l_open is null then
+      return qstring(p_text);   -- no safe delim; cannot inline-interpolate
+    end if;
+
+    -- replace each inline placeholder (case-insensitive, word-boundary aware):
+    --   :NAME  ->  <close>' || :NAME || q'<open>
+    l_names := replace(p_inline_names, ' ');
+    loop
+      l_name := upper(trim(regexp_substr(l_names, '[^,]+', 1, l_idx)));
+      exit when l_name is null;
+      l_name := ltrim(l_name, ':');   -- tolerate ':P200_ID' as well as 'P200_ID'
+      if length(l_name) > 0 then
+        -- Oracle's POSIX regex has no reliable \b word boundary, so match the
+        -- next non-word character (or end of text) explicitly and put it back
+        -- via the \1 backreference.
+        l_text := regexp_replace(l_text,
+                    ':' || l_name || '([^A-Za-z0-9_]|$)',
+                    l_close || ''' || :' || l_name || ' || q''' || l_open || '\1',
+                    1, 0, 'i');
+      end if;
+      l_idx := l_idx + 1;
+    end loop;
+
+    l_out := 'q''' || l_open || l_text || l_close || '''';
+
+    -- tidy up empty leading / trailing q-literals from the wrapping
+    l_out := regexp_replace(l_out, '^q''' || l_open || l_close || '''\s*\|\|\s*', '');
+    l_out := regexp_replace(l_out, '\s*\|\|\s*q''' || l_open || l_close || '''$', '');
+
+    return l_out;
+  end qstring_inline;
+
+
+  function detect_binds(p_text in clob, p_exclude_csv in varchar2 default null) return varchar2 is
+    l_excl  varchar2(4000) := ',' || upper(replace(nvl(p_exclude_csv, ''), ' ')) || ',';
+    l_seen  varchar2(4000) := ',';
+    l_out   varchar2(4000);
+    l_name  varchar2(128);
+    l_n     pls_integer := 1;
+  begin
+    if p_text is null then return null; end if;
+    loop
+      l_name := upper(regexp_substr(p_text, ':([A-Za-z][A-Za-z0-9_]*)', 1, l_n, null, 1));
+      exit when l_name is null;
+      l_n := l_n + 1;
+      if instr(l_seen, ',' || l_name || ',') = 0
+         and instr(l_excl, ',' || l_name || ',') = 0 then
+        l_out  := case when l_out is null then l_name else l_out || ',' || l_name end;
+        l_seen := l_seen || l_name || ',';
+      end if;
+    end loop;
+    return l_out;
+  end detect_binds;
+
+
   function type_name(p_type in number, p_len in number) return varchar2 is
   begin
     return case p_type
@@ -140,21 +237,25 @@ as
 
 
   procedure query_helper(
-    p_query      in  clob,
-    p_binds      in  clob     default null,
-    p_doc_name   in  varchar2 default 'My export',
-    p_format     in  varchar2 default 'KMZ',
-    p_columns    out clob,
-    p_snippet    out clob,
-    p_query_clob out clob,
-    p_status     out varchar2
+    p_query        in  clob,
+    p_binds        in  clob     default null,
+    p_doc_name     in  varchar2 default 'My export',
+    p_format       in  varchar2 default 'KMZ',
+    p_inline_binds in  varchar2 default null,
+    p_columns      out clob,
+    p_snippet      out clob,
+    p_query_clob   out clob,
+    p_status       out varchar2
   ) is
-    l_c     integer;
-    l_cols  number;
-    l_desc  dbms_sql.desc_tab3;
-    l_bobj  json_object_t;
-    l_bkeys json_key_list;
-    l_q     clob;
+    l_c            integer;
+    l_cols         number;
+    l_desc         dbms_sql.desc_tab3;
+    l_bobj         json_object_t;
+    l_bkeys        json_key_list;
+    l_q            clob;
+    l_engine_csv   varchar2(4000);
+    l_inline_csv   varchar2(4000);
+    l_inline_src   varchar2(20);   -- 'explicit' or 'auto'
   begin
     p_status     := 'OK -- parsed against engine schema ' || engine_schema;
     p_columns    := to_clob('');
@@ -184,6 +285,8 @@ as
         l_bobj  := json_object_t.parse(p_binds);
         l_bkeys := l_bobj.get_keys;
         for i in 1 .. l_bkeys.count loop
+          l_engine_csv := case when l_engine_csv is null then upper(l_bkeys(i))
+                               else l_engine_csv || ',' || upper(l_bkeys(i)) end;
           begin
             if l_bobj.get(l_bkeys(i)).is_number then
               dbms_sql.bind_variable(l_c, ':' || l_bkeys(i), l_bobj.get_number(l_bkeys(i)));
@@ -217,13 +320,43 @@ as
 
     if dbms_sql.is_open(l_c) then dbms_sql.close_cursor(l_c); end if;
 
-    l_q          := qstring(p_query);
+    -- Effective inline-bind list: explicit override > auto-detect (all :NAME
+    -- placeholders in the query minus anything already declared as an engine
+    -- bind via p_binds JSON). Anything inline becomes
+    --   q'<o>prefix<c>' || :NAME || q'<o>suffix<c>'
+    -- so the CALLING session (e.g. APEX) resolves it before the query is stored.
+    if p_inline_binds is not null and trim(p_inline_binds) is not null then
+      l_inline_csv := p_inline_binds;
+      l_inline_src := 'explicit';
+    else
+      l_inline_csv := detect_binds(p_query, l_engine_csv);
+      l_inline_src := 'auto';
+    end if;
+
+    if l_engine_csv is not null then
+      p_status := p_status || '; engine binds: ' || l_engine_csv;
+    end if;
+    if l_inline_csv is not null then
+      p_status := p_status || '; inline binds (' || l_inline_src || '): ' || l_inline_csv;
+    end if;
+
+    if l_inline_csv is not null then
+      l_q := qstring_inline(p_query, l_inline_csv);
+    else
+      l_q := qstring(p_query);
+    end if;
     p_query_clob := 'l_query clob := ' || l_q || ';';
 
     p_snippet := p_snippet
               || 'declare'                                                                              || chr(10)
               || '  l_job number;'                                                                       || chr(10)
-              || 'begin'                                                                                 || chr(10)
+              || 'begin'                                                                                 || chr(10);
+    if l_inline_csv is not null then
+      p_snippet := p_snippet
+                || '  -- Inline binds (' || l_inline_csv || ') are resolved by THIS session' || chr(10)
+                || '  -- (e.g. APEX page items) BEFORE the query is stored on the job.'      || chr(10);
+    end if;
+    p_snippet := p_snippet
               || '  l_job := pck_kml_job_api.create_job_from_query('                                     || chr(10)
               || '    p_document_name => ''' || replace(nvl(p_doc_name,'My export'),'''','''''') || ''',' || chr(10)
               || '    p_output_format => ''' || nvl(upper(p_format),'KMZ') || ''','                      || chr(10);

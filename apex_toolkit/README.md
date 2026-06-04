@@ -57,16 +57,32 @@ KMLeon schema):
 |---|---|
 | `row_sleep(p_seconds)` | per-row sleep used by the Async playground SELECT |
 | `qstring(p_text)` | wrap a CLOB in a safe `q'<delim>...<delim>'` literal |
+| `qstring_inline(p_text, p_inline_names)` | like `qstring`, but split around caller-resolved placeholders so the output reads `q'~prefix~' || :NAME || q'~suffix~'` |
 | `role_of(p_alias)` | map a SELECT column alias to its KMLeon role |
 | `type_name(p_type, p_len)` | friendly name for a `DBMS_SQL` column-type code |
 | `engine_schema` | the schema names resolve to here (the engine schema; package is `AUTHID DEFINER`) |
-| `query_helper(p_query, p_binds, …)` | parse + describe + produce snippets (Query helper page) |
+| `query_helper(p_query, p_binds, …, p_inline_binds, …)` | parse + describe + produce snippets (Query helper page); `p_inline_binds` lists caller-resolved placeholders |
 
 Cross-schema notes: the Query helper validates the SELECT **as the engine schema**
 (`PCK_KMLEON_TOOLS` is `AUTHID DEFINER`), so a successful parse means the engine can
 run it. If a table lives in another schema, qualify it (`OTHER_SCHEMA.TABLE`), create a
 synonym in the engine schema, or use a DB link &mdash; the parser will tell you when
 it cannot resolve a name.
+
+Two kinds of binds in a `QUERY` source — **auto-classified**:
+- **Engine binds** — whatever names you declare in `source_binds` JSON
+  (e.g. `{"region":"DE"}`); the engine binds them at job time. They stay as `:name`
+  inside the query string.
+- **Inline binds** (caller-resolved, **default**) — every other `:NAME` the helper
+  finds in the query (e.g. `:P200_ID` for an APEX page item). The snippet output
+  splits the q-literal so the *calling* session concatenates the value in *before*
+  the query is stored on the job: `q'~prefix~' || :P200_ID || q'~suffix~'`. The
+  engine never sees those placeholders.
+
+The *Inline binds* field on the page is just an explicit override; leave it empty for
+auto-detection. The *Status* line reports both sets. (Validation does not need to strip
+a `WHERE :Px = ...` clause &mdash; `DBMS_SQL.parse` checks syntax + names, not bind
+values.)
 
 ## Key format facts (learned from the reference export)
 - The **app id lives in `deployments/default.json`** (`app.id`), *not* in
