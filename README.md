@@ -27,7 +27,7 @@
 - [Usage](#usage)
 - [Configuration & maintenance](#configuration--maintenance)
 - [Notifications](#notifications)
-- [Demo app](#demo-app)
+- [Toolkit app](#toolkit-app)
 - [Feature mapping contract](#feature-mapping-contract)
 - [Conventions](#conventions)
 - [Roadmap](#roadmap)
@@ -300,14 +300,17 @@ your mail stack by editing the two `-- CUSTOMIZE HERE` hooks:
 The recipient is `KML_JOBS.notify_email` when set (wins, e.g. for REST callers), otherwise
 `resolve_recipient(user_tab, user_id)`. `notified_at` is stamped via the DML package.
 
-## Demo app
+## Toolkit app
 
-A small **APEX 26.1** app (human-readable *APEXLang* `.apx` format) lives under
-[`apex_demo/`](apex_demo/). It exercises the full toolkit — create a job from GeoJSON
-or a `SELECT`, run it, browse jobs and their assets, preview geometries on a Map region,
-download the KML/KMZ, and inspect `KML_LOG`. Import it with SQLcl
-(`apex import -input apex_demo`) or as a zip via App Builder, then seed with
-`apex_demo/demo_data.sql`. See [`apex_demo/README.md`](apex_demo/README.md).
+An **APEX 26.1** app (human-readable *APEXLang* `.apx` format) under
+[`apex_toolkit/`](apex_toolkit/) — a working **development toolkit** for KMLeon.
+Build jobs from GeoJSON or a `SELECT`, run them sync / async, preview geometries
+on a map, inspect `KML_LOG`, manage cleanup settings, and use the **Query helper**
+to analyse a candidate SELECT (column → role mapping) and emit ready-to-paste
+PL/SQL snippets for integrating KMLeon into your own code. The app's helpers
+live in `PCK_KMLEON_TOOLS` (created by `setup.sql`). Import it with SQLcl
+(`apex import -input apex_toolkit`) or as a zip via App Builder, then run
+`@apex_toolkit/setup.sql`. See [`apex_toolkit/README.md`](apex_toolkit/README.md).
 
 ## Feature mapping contract
 

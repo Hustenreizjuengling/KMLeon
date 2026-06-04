@@ -46,7 +46,7 @@ page 8 (
                 ```html
                 <p class="u-textGrey">
                   This builds a deliberately <b>slow</b> QUERY job: each generated point calls
-                  <code>kml_demo_slow(:secs)</code> (a per-row sleep), so the whole build takes
+                  <code>pck_kmleon_tools.row_sleep(:secs)</code> (a per-row sleep), so the whole build takes
                   roughly <i>points &times; seconds</i> (set seconds to <b>0</b> to run as fast as
                   possible). Pick the <b>Run mode</b> to compare:
                   <b>Async</b> uses <code>submit_job(p_async =&gt; true)</code> &mdash; the button
@@ -480,7 +480,7 @@ page 8 (
                                      null, null)                    as geometry,
                                    'Point ' || level                  as name,
                                    'Async demo'                       as folder_name,
-                                   kml_demo_slow(:secs)               as delayed_note
+                                   pck_kmleon_tools.row_sleep(:secs)   as delayed_note
                               from dual
                             connect by level <= :n
                         ]');

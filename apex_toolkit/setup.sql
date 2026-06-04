@@ -1,30 +1,31 @@
 --------------------------------------------------------------------------------
--- KMLeon demo data  (run in the schema that owns the KMLeon objects)
+-- KMLeon Toolkit :: one-shot setup
 --------------------------------------------------------------------------------
--- Creates a few jobs via PCK_KML_JOB_API and runs them synchronously, so the
--- APEX "Jobs" report shows data immediately. Pure KMLeon API -- no APEX needed.
---   sqlplus kmleon/****@db @demo_data.sql
+-- Run as the schema that owns the KMLeon objects:
+--   sqlplus kmleon/****@db @setup.sql
+--   -- or in SQLcl: sql kmleon/****@db @setup.sql
+--
+-- This installs the toolkit's helper package (PCK_KMLEON_TOOLS) used by the
+-- APEX pages, then seeds a few sample jobs via PCK_KML_JOB_API so the reports
+-- have data immediately. Re-runnable: the package uses CREATE OR REPLACE; the
+-- sample jobs accumulate (delete them by hand if you don't want extras).
 --------------------------------------------------------------------------------
 set serveroutput on size unlimited
+set echo off
+whenever sqlerror continue
 
--- Helper for the "Async playground" page (page 8): sleeps per row so a QUERY job
--- runs long enough to watch it progress asynchronously. DBMS_SESSION.SLEEP is 19c
--- and PUBLIC (no extra grant). Created in the KMLeon schema so the engine's
--- definer-rights dynamic SQL can call it.
-create or replace function kml_demo_slow(p_seconds in number) return number is
-begin
-  sys.dbms_session.sleep(nvl(p_seconds, 1));
-  return nvl(p_seconds, 1);
-end;
-/
+prompt -- package PCK_KMLEON_TOOLS (lives alongside the core KMLeon packages)
+@@../sql/packages/pck_kmleon_tools.sql
+show errors
 
+prompt -- sample jobs
 declare
   l_job number;
   l_n   number;
 begin
   ----------------------------------------------------------------- 1) ASSETS + GeoJSON, KML
   l_job := pck_kml_job_api.create_job(
-             p_document_name => 'Demo: cities (GeoJSON)',
+             p_document_name => 'Sample: cities (GeoJSON)',
              p_output_format => 'KML',
              p_notify_email  => 'demo@example.com');
   l_n := pck_kml_job_api.add_features_geojson(l_job, q'~
@@ -42,7 +43,7 @@ begin
 
   ----------------------------------------------------------------- 2) QUERY / STREAM (SDO), KML
   l_job := pck_kml_job_api.create_job_from_query(
-             p_document_name => 'Demo: query stream (SDO)',
+             p_document_name => 'Sample: query stream (SDO)',
              p_output_format => 'KML',
              p_source_query  => q'~
                  select sdo_geometry(2001, 4326, sdo_point_type(8.68, 50.11, null), null, null) as geometry,
@@ -56,7 +57,7 @@ begin
 
   ----------------------------------------------------------------- 3) ASSETS polygon, KMZ (needs APEX_ZIP)
   l_job := pck_kml_job_api.create_job(
-             p_document_name => 'Demo: area (KMZ)',
+             p_document_name => 'Sample: area (KMZ)',
              p_output_format => 'KMZ');
   l_n := pck_kml_job_api.add_features_geojson(l_job, q'~
     {"type":"Feature",
@@ -66,6 +67,6 @@ begin
   pck_kml_job_api.run_now(l_job);
   dbms_output.put_line('Job ' || l_job || ': ' || pck_kml_job_api.get_status(l_job));
 
-  dbms_output.put_line('--- demo data ready; refresh the APEX Jobs report ---');
+  dbms_output.put_line('--- toolkit setup done; refresh the APEX Jobs report ---');
 end;
 /

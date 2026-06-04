@@ -1,5 +1,5 @@
 app KMLEON (
-    name: KMLeon Demo
+    name: KMLeon Toolkit
     logo {
         type: text
         text: KMLeon
@@ -57,7 +57,7 @@ app KMLEON (
 
     substitution APP_NAME (
         value {
-            staticValue: KMLeon Demo
+            staticValue: KMLeon Toolkit
         }
     )
 

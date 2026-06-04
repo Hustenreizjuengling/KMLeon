@@ -1,0 +1,386 @@
+page 10 (
+    name: Query helper
+    alias: QUERY-HELPER
+    title: KMLeon - Query helper
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region input (
+        name: Query
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        source {
+            htmlCode:
+                ```html
+                <p class="u-textGrey">
+                  Paste a SELECT to use as a KMLeon <code>QUERY</code> source. Click
+                  <b>Analyze</b> and the page parses it with <code>DBMS_SQL</code>, describes the
+                  columns and matches each alias to its <b>KMLeon role</b> (geometry, name,
+                  folder, style, &hellip; &mdash; anything unrecognised becomes
+                  <code>&lt;ExtendedData&gt;</code>). The PL/SQL snippets below are produced with
+                  safe q-quoting so you can paste them straight into your code.
+                </p>
+                ```
+        }
+    )
+
+    pageItem P10_QUERY (
+        type: textarea
+        label {
+            label: SELECT
+        }
+        layout {
+            sequence: 10
+            region: @input
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+            valuePlaceholder: select shape as geometry, name, region as folder_name from stores
+        }
+        help {
+            helpText: Column aliases drive the output. Reserved names (GEOMETRY / GEOMETRY_GEOJSON, NAME, FOLDER_NAME, *_COLOR, ...) map to roles; everything else becomes ExtendedData.
+        }
+    )
+
+    pageItem P10_BINDS (
+        type: textarea
+        label {
+            label: Binds (JSON, optional)
+        }
+        layout {
+            sequence: 20
+            region: @input
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            valuePlaceholder: {"region":"DE"}
+        }
+        help {
+            helpText: JSON object of bind values referenced as :name in the SELECT (e.g. :region).
+        }
+    )
+
+    pageItem P10_DOC_NAME (
+        type: textField
+        label {
+            label: Document name
+        }
+        layout {
+            sequence: 30
+            region: @input
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+            valuePlaceholder: My export
+            icon: fa-file-o
+        }
+        help {
+            helpText: Used in the generated PL/SQL snippet as p_document_name.
+        }
+    )
+
+    pageItem P10_FORMAT (
+        type: selectList
+        label {
+            label: Output
+        }
+        layout {
+            sequence: 40
+            region: @input
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/required-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'KMZ (zipped)' as d, 'KMZ' as r from dual
+                union all
+                select 'KML (text)'   as d, 'KML' as r from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    button btn-analyze (
+        buttonName: ANALYZE
+        label: Analyze
+        layout {
+            sequence: 50
+            region: @input
+            slot: regionBody
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: #DEFAULT#
+            icon: fa-search
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    button btn-run (
+        buttonName: RUN_TEST
+        label: Create test job and run async
+        layout {
+            sequence: 60
+            region: @input
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+            icon: fa-rocket
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    region cols (
+        name: Columns and KMLeon roles
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P10_STATUS (
+        type: displayOnly
+        label {
+            label: Status
+        }
+        layout {
+            sequence: 10
+            region: @cols
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P10_COLUMNS (
+        type: textarea
+        label {
+            label: Column analysis (alias / type / KMLeon role)
+        }
+        layout {
+            sequence: 20
+            region: @cols
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        help {
+            helpText: From DBMS_SQL.describe_columns3. Anything not on the reserved list maps to ExtendedData.
+        }
+    )
+
+    region snippets (
+        name: PL/SQL snippets (ready to paste)
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P10_QUERY_CLOB (
+        type: textarea
+        label {
+            label: l_query CLOB := ... ;
+        }
+        layout {
+            sequence: 10
+            region: @snippets
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        help {
+            helpText: Just the CLOB assignment with a safe q'<delim>...<delim>' wrapping.
+        }
+    )
+
+    pageItem P10_SNIPPET (
+        type: textarea
+        label {
+            label: Full anonymous block (PCK_KML_JOB_API.create_job_from_query)
+        }
+        layout {
+            sequence: 20
+            region: @snippets
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        help {
+            helpText: Ready-to-paste declare/begin/end block that creates the job and starts it via run_async.
+        }
+    )
+
+    process init-defaults (
+        name: Initialise inputs
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P10_DOC_NAME := nvl(:P10_DOC_NAME, 'My export');
+                  :P10_FORMAT   := nvl(:P10_FORMAT, 'KMZ');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-analyze (
+        name: Analyze query
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @btn-analyze
+        }
+
+        action do-analyze (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P10_QUERY,P10_BINDS,P10_DOC_NAME,P10_FORMAT
+                itemsToReturn: P10_STATUS,P10_COLUMNS,P10_QUERY_CLOB,P10_SNIPPET
+                plsqlCode:
+                    ```plsql
+                    declare
+                      l_cols clob;
+                      l_snip clob;
+                      l_qc   clob;
+                      l_st   varchar2(4000);
+                    begin
+                      pck_kmleon_tools.query_helper(
+                        p_query      => :P10_QUERY,
+                        p_binds      => :P10_BINDS,
+                        p_doc_name   => :P10_DOC_NAME,
+                        p_format     => :P10_FORMAT,
+                        p_columns    => l_cols,
+                        p_snippet    => l_snip,
+                        p_query_clob => l_qc,
+                        p_status     => l_st);
+                      :P10_STATUS     := l_st;
+                      :P10_COLUMNS    := l_cols;
+                      :P10_SNIPPET    := l_snip;
+                      :P10_QUERY_CLOB := l_qc;
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action msg-done (
+            action: showSuccessMessage
+            settings {
+                message: Query analyzed. Scroll down for columns and the PL/SQL snippets.
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-run (
+        name: Create test job and run async
+        execution {
+            sequence: 20
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @btn-run
+        }
+
+        action do-run (
+            action: executeServerSideCode
+            settings {
+                itemsToSubmit: P10_QUERY,P10_BINDS,P10_DOC_NAME,P10_FORMAT
+                plsqlCode:
+                    ```plsql
+                    declare
+                      l_job number;
+                    begin
+                      l_job := pck_kml_job_api.create_job_from_query(
+                                 p_document_name => nvl(:P10_DOC_NAME, 'My export'),
+                                 p_source_query  => :P10_QUERY,
+                                 p_source_binds  => :P10_BINDS,
+                                 p_output_format => nvl(:P10_FORMAT, 'KMZ'));
+                      commit;
+                      pck_kml_job_api.submit_job(l_job, p_async => true);
+                    end;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action msg-run (
+            action: showSuccessMessage
+            settings {
+                message: Test job created and launched async. Open "Jobs" to watch it.
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

@@ -96,6 +96,25 @@ list navigation-menu (
         }
     )
 
+    entry query-helper (
+        label: Query helper
+        icon {
+            imageIconCssClasses: fa-flask
+        }
+        layout {
+            sequence: 25
+        }
+        isCurrent {
+            type: pages
+            pages: 10
+        }
+        link {
+            target: {
+                page: 10
+            }
+        }
+    )
+
     entry async (
         label: Async playground
         icon {
