@@ -70,6 +70,41 @@ as
     p_query_clob   out clob,
     p_status       out varchar2
   );
+
+  -- Convert a KML aabbggrr color back to an HTML #RRGGBB string (for loading a
+  -- stored asset's color into a color picker). Returns NULL on bad input.
+  function kml_to_rgb(p_kml in varchar2) return varchar2;
+
+  -- Extract the alpha (0..255) from a KML aabbggrr color. Returns NULL on bad input.
+  function kml_alpha(p_kml in varchar2) return number;
+
+  -- Style helper for the Editor page. Given a feature's geometry (GeoJSON) and
+  -- style choices (colors as #RRGGBB or RRGGBB; the leading # is tolerated),
+  -- produce two ready-to-paste artefacts:
+  --   p_snippet    : a PCK_KML_JOB_API.add_asset(...) call (colors via rgba_to_kml)
+  --   p_kml_style  : the raw KML <Style>...</Style> fragment
+  -- Pass-through alphas are 0..255 (default 255; polygon fill default 128). Any
+  -- color left null/empty omits that sub-style and the matching add_asset param.
+  procedure style_outputs(
+    p_geojson       in  clob     default null,
+    p_name          in  varchar2 default null,
+    p_folder_name   in  varchar2 default null,
+    p_line_color    in  varchar2 default null,   -- #RRGGBB
+    p_line_width    in  number   default null,
+    p_poly_color    in  varchar2 default null,   -- #RRGGBB
+    p_poly_alpha    in  number   default 128,    -- fill opacity 0..255
+    p_poly_fill     in  varchar2 default 'Y',
+    p_poly_outline  in  varchar2 default 'Y',
+    p_label_color   in  varchar2 default null,   -- #RRGGBB
+    p_label_scale   in  number   default null,
+    p_icon_href     in  varchar2 default null,
+    p_icon_scale    in  number   default null,
+    p_altitude_mode in  varchar2 default null,
+    p_extrude       in  varchar2 default 'N',
+    p_tessellate    in  varchar2 default 'N',
+    p_snippet       out clob,
+    p_kml_style     out clob
+  );
 end pck_kmleon_tools;
 /
 
@@ -470,6 +505,155 @@ as
       exception when others then null;
       end;
   end query_helper;
+
+
+  function kml_to_rgb(p_kml in varchar2) return varchar2 is
+    l varchar2(8) := lower(trim(p_kml));
+  begin
+    if l is null or length(l) <> 8 then return null; end if;
+    -- aabbggrr -> #rrggbb
+    return '#' || substr(l, 7, 2) || substr(l, 5, 2) || substr(l, 3, 2);
+  exception when others then return null;
+  end kml_to_rgb;
+
+
+  function kml_alpha(p_kml in varchar2) return number is
+    l varchar2(8) := trim(p_kml);
+  begin
+    if l is null or length(l) <> 8 then return null; end if;
+    return to_number(substr(l, 1, 2), 'xx');
+  exception when others then return null;
+  end kml_alpha;
+
+
+  procedure style_outputs(
+    p_geojson       in  clob     default null,
+    p_name          in  varchar2 default null,
+    p_folder_name   in  varchar2 default null,
+    p_line_color    in  varchar2 default null,
+    p_line_width    in  number   default null,
+    p_poly_color    in  varchar2 default null,
+    p_poly_alpha    in  number   default 128,
+    p_poly_fill     in  varchar2 default 'Y',
+    p_poly_outline  in  varchar2 default 'Y',
+    p_label_color   in  varchar2 default null,
+    p_label_scale   in  number   default null,
+    p_icon_href     in  varchar2 default null,
+    p_icon_scale    in  number   default null,
+    p_altitude_mode in  varchar2 default null,
+    p_extrude       in  varchar2 default 'N',
+    p_tessellate    in  varchar2 default 'N',
+    p_snippet       out clob,
+    p_kml_style     out clob
+  ) is
+    l_line  varchar2(6) := upper(ltrim(p_line_color,  '#'));
+    l_poly  varchar2(6) := upper(ltrim(p_poly_color,  '#'));
+    l_label varchar2(6) := upper(ltrim(p_label_color, '#'));
+
+    function num(p_n in number) return varchar2 is   -- '.' decimal, no group sep
+    begin
+      return rtrim(rtrim(to_char(p_n, 'FM9999990.0999'), '0'), '.');
+    end;
+  begin
+    --------------------------------------------------------------------- snippet
+    p_snippet := 'l_a := pck_kml_job_api.add_asset('                                  || chr(10)
+              || '         p_job_id           => l_job,'                              || chr(10);
+    if p_geojson is not null and dbms_lob.getlength(p_geojson) > 0 then
+      p_snippet := p_snippet
+              || '         p_geometry_geojson => ' || qstring(p_geojson) || ','       || chr(10);
+    end if;
+    if p_name is not null then
+      p_snippet := p_snippet
+              || '         p_name             => ''' || replace(p_name,'''','''''') || ''','  || chr(10);
+    end if;
+    if p_folder_name is not null then
+      p_snippet := p_snippet
+              || '         p_folder_name      => ''' || replace(p_folder_name,'''','''''') || ''','  || chr(10);
+    end if;
+    if length(l_line) = 6 then
+      p_snippet := p_snippet
+              || '         p_line_color       => pck_kml_engine.rgba_to_kml(''' || l_line || '''),'  || chr(10);
+    end if;
+    if p_line_width is not null then
+      p_snippet := p_snippet
+              || '         p_line_width       => ' || num(p_line_width) || ','        || chr(10);
+    end if;
+    if length(l_poly) = 6 then
+      p_snippet := p_snippet
+              || '         p_poly_color       => pck_kml_engine.rgba_to_kml(''' || l_poly || ''', ' || nvl(p_poly_alpha,128) || '),'  || chr(10)
+              || '         p_poly_fill        => ''' || nvl(p_poly_fill,'Y') || ''','     || chr(10)
+              || '         p_poly_outline     => ''' || nvl(p_poly_outline,'Y') || ''',' || chr(10);
+    end if;
+    if length(l_label) = 6 then
+      p_snippet := p_snippet
+              || '         p_label_color      => pck_kml_engine.rgba_to_kml(''' || l_label || '''),' || chr(10);
+    end if;
+    if p_label_scale is not null then
+      p_snippet := p_snippet
+              || '         p_label_scale      => ' || num(p_label_scale) || ','        || chr(10);
+    end if;
+    if p_icon_href is not null then
+      p_snippet := p_snippet
+              || '         p_icon_href        => ''' || replace(p_icon_href,'''','''''') || ''','  || chr(10);
+    end if;
+    if p_icon_scale is not null then
+      p_snippet := p_snippet
+              || '         p_icon_scale       => ' || num(p_icon_scale) || ','         || chr(10);
+    end if;
+    if p_altitude_mode is not null then
+      p_snippet := p_snippet
+              || '         p_altitude_mode    => ''' || p_altitude_mode || ''','       || chr(10);
+    end if;
+    if nvl(p_extrude,'N') = 'Y' then
+      p_snippet := p_snippet || '         p_extrude          => ''Y'','              || chr(10);
+    end if;
+    if nvl(p_tessellate,'N') = 'Y' then
+      p_snippet := p_snippet || '         p_tessellate       => ''Y'','              || chr(10);
+    end if;
+    -- trim the trailing ",\n" and close the call
+    p_snippet := rtrim(p_snippet, ',' || chr(10)) || ');';
+
+    ------------------------------------------------------------------- KML style
+    p_kml_style := '<Style>' || chr(10);
+    if length(l_line) = 6 or p_line_width is not null then
+      p_kml_style := p_kml_style || '  <LineStyle>';
+      if length(l_line) = 6 then
+        p_kml_style := p_kml_style || '<color>' || pck_kml_engine.rgba_to_kml(l_line) || '</color>';
+      end if;
+      if p_line_width is not null then
+        p_kml_style := p_kml_style || '<width>' || num(p_line_width) || '</width>';
+      end if;
+      p_kml_style := p_kml_style || '</LineStyle>' || chr(10);
+    end if;
+    if length(l_poly) = 6 then
+      p_kml_style := p_kml_style || '  <PolyStyle>'
+                  || '<color>' || pck_kml_engine.rgba_to_kml(l_poly, nvl(p_poly_alpha,128)) || '</color>'
+                  || '<fill>'    || case when nvl(p_poly_fill,'Y')    = 'Y' then '1' else '0' end || '</fill>'
+                  || '<outline>' || case when nvl(p_poly_outline,'Y') = 'Y' then '1' else '0' end || '</outline>'
+                  || '</PolyStyle>' || chr(10);
+    end if;
+    if length(l_label) = 6 or p_label_scale is not null then
+      p_kml_style := p_kml_style || '  <LabelStyle>';
+      if length(l_label) = 6 then
+        p_kml_style := p_kml_style || '<color>' || pck_kml_engine.rgba_to_kml(l_label) || '</color>';
+      end if;
+      if p_label_scale is not null then
+        p_kml_style := p_kml_style || '<scale>' || num(p_label_scale) || '</scale>';
+      end if;
+      p_kml_style := p_kml_style || '</LabelStyle>' || chr(10);
+    end if;
+    if p_icon_href is not null or p_icon_scale is not null then
+      p_kml_style := p_kml_style || '  <IconStyle>';
+      if p_icon_scale is not null then
+        p_kml_style := p_kml_style || '<scale>' || num(p_icon_scale) || '</scale>';
+      end if;
+      if p_icon_href is not null then
+        p_kml_style := p_kml_style || '<Icon><href>' || p_icon_href || '</href></Icon>';
+      end if;
+      p_kml_style := p_kml_style || '</IconStyle>' || chr(10);
+    end if;
+    p_kml_style := p_kml_style || '</Style>';
+  end style_outputs;
 
 end pck_kmleon_tools;
 /

@@ -22,6 +22,20 @@ format/version matches APEX 26.1 exactly.
   `itemIsNotNull P1_JOB_ID`). Actions run via Dynamic Actions → `PCK_KML_*`.
 - **3 New job** — modern form (floating labels, format dropdown) + *Create from
   GeoJSON & run* / *Create from SELECT & run*.
+- **11 Editor** — a map-based geometry + style workbench. **Draw** geometries freehand
+  (point / line / polygon via a custom MapLibre layer using the map's `getMapObject()`),
+  **style** them with **live preview** (line/fill color, width, opacity), then **Save
+  asset** to a job (pick a DRAFT job or any job that still has assets — the editor creates
+  a draft on first save). The job's existing assets are listed in an **Interactive Grid**;
+  **click a row** and its geometry loads back onto the map and its style into the form —
+  edit and **Save asset** to update it in place (via `PCK_KML_JOB_ASSETS_DML.upd`).
+  **New / clear** starts a fresh feature. **Build
+  snippet & KML** copies a ready-made `PCK_KML_JOB_API.add_asset(...)` call *and* the raw
+  KML `<Style>` fragment for hardcoding into your own app. **Run job** + **Download**
+  render and fetch the KML/KMZ. (Styling/outputs use `PCK_KMLEON_TOOLS.style_outputs`;
+  stored colors load back into the pickers via `kml_to_rgb`/`kml_alpha`. Note: *Run job*
+  finalises the DRAFT and, per the global `DELETE_ASSETS_AFTER_SUCCESS` setting, may clear
+  its assets afterwards — turn that off on the Settings page to keep editing.)
 - **10 Query helper** — paste a candidate `QUERY` SELECT (+ optional binds JSON), click
   *Analyze*: the page parses it with `DBMS_SQL`, describes every column and matches each
   alias to its **KMLeon role** (geometry/name/folder/style/… or `ExtendedData`), then
@@ -62,6 +76,8 @@ KMLeon schema):
 | `type_name(p_type, p_len)` | friendly name for a `DBMS_SQL` column-type code |
 | `engine_schema` | the schema names resolve to here (the engine schema; package is `AUTHID DEFINER`) |
 | `query_helper(p_query, p_binds, …, p_inline_binds, …)` | parse + describe + produce snippets (Query helper page); `p_inline_binds` lists caller-resolved placeholders |
+| `style_outputs(p_geojson, …style…)` | build an `add_asset(...)` snippet + raw KML `<Style>` XML from a geometry + style choices (Editor page) |
+| `kml_to_rgb(p_kml)` / `kml_alpha(p_kml)` | convert a stored KML `aabbggrr` color back to `#RRGGBB` / its 0–255 alpha (Editor loads asset colors into the pickers) |
 
 Cross-schema notes: the Query helper validates the SELECT **as the engine schema**
 (`PCK_KMLEON_TOOLS` is `AUTHID DEFINER`), so a successful parse means the engine can

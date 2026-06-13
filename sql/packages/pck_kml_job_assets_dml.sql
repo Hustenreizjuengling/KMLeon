@@ -45,6 +45,34 @@ as
   -- POLY_OUTLINE; case-insensitive). Returns the number of features inserted.
   function add_features_geojson(p_job_id in number, p_feature_collection in clob) return pls_integer;
 
+  -- Full-overwrite update of one asset's style + metadata. Style/metadata columns
+  -- are set to the passed values (NULL clears them). Geometry is replaced only when
+  -- a geometry is supplied (SDO or non-empty GeoJSON); otherwise it is left as-is.
+  procedure upd(
+    p_asset_id         in number,
+    p_geometry_sdo     in sdo_geometry default null,
+    p_geometry_geojson in clob         default null,
+    p_name             in varchar2 default null,
+    p_description      in clob     default null,
+    p_extended_data    in clob     default null,
+    p_folder_name      in varchar2 default null,
+    p_display_order    in number   default null,
+    p_altitude_mode    in varchar2 default null,
+    p_extrude          in varchar2 default 'N',
+    p_tessellate       in varchar2 default 'N',
+    p_icon_href        in varchar2 default null,
+    p_icon_scale       in number   default null,
+    p_label_color      in varchar2 default null,
+    p_label_scale      in number   default null,
+    p_line_color       in varchar2 default null,
+    p_line_width       in number   default null,
+    p_poly_color       in varchar2 default null,
+    p_poly_fill        in varchar2 default null,
+    p_poly_outline     in varchar2 default null,
+    p_visibility       in varchar2 default 'Y',
+    p_updated_by       in varchar2 default null
+  );
+
   procedure del(p_asset_id in number);
   procedure del_by_job(p_job_id in number);
 end pck_kml_job_assets_dml;
@@ -282,6 +310,61 @@ as
     pck_kml_log.info(c_pkg, 'add_features_geojson', 'added ' || l_count || ' feature(s)', p_job_id);
     return l_count;
   end add_features_geojson;
+
+
+  procedure upd(
+    p_asset_id         in number,
+    p_geometry_sdo     in sdo_geometry default null,
+    p_geometry_geojson in clob         default null,
+    p_name             in varchar2 default null,
+    p_description      in clob     default null,
+    p_extended_data    in clob     default null,
+    p_folder_name      in varchar2 default null,
+    p_display_order    in number   default null,
+    p_altitude_mode    in varchar2 default null,
+    p_extrude          in varchar2 default 'N',
+    p_tessellate       in varchar2 default 'N',
+    p_icon_href        in varchar2 default null,
+    p_icon_scale       in number   default null,
+    p_label_color      in varchar2 default null,
+    p_label_scale      in number   default null,
+    p_line_color       in varchar2 default null,
+    p_line_width       in number   default null,
+    p_poly_color       in varchar2 default null,
+    p_poly_fill        in varchar2 default null,
+    p_poly_outline     in varchar2 default null,
+    p_visibility       in varchar2 default 'Y',
+    p_updated_by       in varchar2 default null
+  ) is
+    l_has_geom boolean := p_geometry_sdo is not null
+                          or (p_geometry_geojson is not null and dbms_lob.getlength(p_geometry_geojson) > 0);
+  begin
+    update kml_job_assets
+       set geometry_sdo     = case when l_has_geom then p_geometry_sdo     else geometry_sdo     end,
+           geometry_geojson = case when l_has_geom then p_geometry_geojson else geometry_geojson end,
+           name             = p_name,
+           description      = p_description,
+           extended_data    = p_extended_data,
+           folder_name      = p_folder_name,
+           display_order    = nvl(p_display_order, display_order),
+           altitude_mode    = p_altitude_mode,
+           extrude          = nvl(p_extrude, 'N'),
+           tessellate       = nvl(p_tessellate, 'N'),
+           icon_href        = p_icon_href,
+           icon_scale       = p_icon_scale,
+           label_color      = p_label_color,
+           label_scale      = p_label_scale,
+           line_color       = p_line_color,
+           line_width       = p_line_width,
+           poly_color       = p_poly_color,
+           poly_fill        = p_poly_fill,
+           poly_outline     = p_poly_outline,
+           visibility       = nvl(p_visibility, 'Y'),
+           updated_at       = systimestamp,
+           updated_by       = nvl(p_updated_by, user)
+     where asset_id = p_asset_id;
+    pck_kml_log.debug(c_pkg, 'upd', 'updated asset ' || p_asset_id);
+  end upd;
 
 
   procedure del(p_asset_id in number) is

@@ -96,6 +96,25 @@ list navigation-menu (
         }
     )
 
+    entry editor (
+        label: Editor
+        icon {
+            imageIconCssClasses: fa-pencil-square-o
+        }
+        layout {
+            sequence: 22
+        }
+        isCurrent {
+            type: pages
+            pages: 11
+        }
+        link {
+            target: {
+                page: 11
+            }
+        }
+    )
+
     entry query-helper (
         label: Query helper
         icon {
