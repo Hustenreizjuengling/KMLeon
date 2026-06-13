@@ -105,6 +105,37 @@ as
     p_snippet       out clob,
     p_kml_style     out clob
   );
+
+  -- REST helper for the Editor page. Produces ready-to-paste curl scripts that use
+  -- the KMLeon ORDS API (sql/ords/010_rest_api.sql):
+  --   p_asset_rest : POST the current geometry + style as ONE GeoJSON feature to an
+  --                  existing job's /features endpoint (colors via rgba_to_kml).
+  --   p_job_rest   : the WHOLE selected job (p_job_id) as a curl sequence -- create
+  --                  the job, POST all its assets as a FeatureCollection, run it,
+  --                  and download the result. Stored asset colors are aabbggrr.
+  -- p_base_url is the ORDS base, e.g. https://host/ords/kml/kmleon/v1 (no trailing /).
+  procedure rest_outputs(
+    p_job_id        in  number   default null,
+    p_geojson       in  clob     default null,
+    p_name          in  varchar2 default null,
+    p_folder_name   in  varchar2 default null,
+    p_line_color    in  varchar2 default null,   -- #RRGGBB
+    p_line_width    in  number   default null,
+    p_poly_color    in  varchar2 default null,   -- #RRGGBB
+    p_poly_alpha    in  number   default 128,
+    p_poly_fill     in  varchar2 default 'Y',
+    p_poly_outline  in  varchar2 default 'Y',
+    p_label_color   in  varchar2 default null,   -- #RRGGBB
+    p_label_scale   in  number   default null,
+    p_icon_href     in  varchar2 default null,
+    p_icon_scale    in  number   default null,
+    p_altitude_mode in  varchar2 default null,
+    p_extrude       in  varchar2 default 'N',
+    p_tessellate    in  varchar2 default 'N',
+    p_base_url      in  varchar2 default 'https://HOST/ords/SCHEMA/kmleon/v1',
+    p_asset_rest    out clob,
+    p_job_rest      out clob
+  );
 end pck_kmleon_tools;
 /
 
@@ -654,6 +685,135 @@ as
     end if;
     p_kml_style := p_kml_style || '</Style>';
   end style_outputs;
+
+
+  -- Build one GeoJSON Feature (geometry + KMLeon-contract properties). Colors are
+  -- expected ALREADY as KML aabbggrr (the caller converts when needed).
+  function feature_obj(
+    p_geom in clob, p_name in varchar2, p_folder in varchar2,
+    p_line in varchar2, p_lw in number, p_poly in varchar2,
+    p_fill in varchar2, p_outline in varchar2, p_label in varchar2, p_lscale in number,
+    p_icon in varchar2, p_iscale in number, p_alt in varchar2, p_extr in varchar2, p_tess in varchar2
+  ) return json_object_t is
+    l_f json_object_t := json_object_t();
+    l_p json_object_t := json_object_t();
+  begin
+    l_f.put('type', 'Feature');
+    begin
+      l_f.put('geometry', json_object_t.parse(p_geom));
+    exception when others then
+      l_f.put('geometry', json_object_t());
+    end;
+    if p_name    is not null then l_p.put('NAME', p_name); end if;
+    if p_folder  is not null then l_p.put('FOLDER_NAME', p_folder); end if;
+    if p_line    is not null then l_p.put('LINE_COLOR', p_line); end if;
+    if p_lw      is not null then l_p.put('LINE_WIDTH', p_lw); end if;
+    if p_poly    is not null then l_p.put('POLY_COLOR', p_poly); end if;
+    if p_fill    is not null then l_p.put('POLY_FILL', p_fill); end if;
+    if p_outline is not null then l_p.put('POLY_OUTLINE', p_outline); end if;
+    if p_label   is not null then l_p.put('LABEL_COLOR', p_label); end if;
+    if p_lscale  is not null then l_p.put('LABEL_SCALE', p_lscale); end if;
+    if p_icon    is not null then l_p.put('ICON_HREF', p_icon); end if;
+    if p_iscale  is not null then l_p.put('ICON_SCALE', p_iscale); end if;
+    if p_alt     is not null then l_p.put('ALTITUDE_MODE', p_alt); end if;
+    if nvl(p_extr,'N') = 'Y'  then l_p.put('EXTRUDE', 'Y'); end if;
+    if nvl(p_tess,'N') = 'Y'  then l_p.put('TESSELLATE', 'Y'); end if;
+    l_f.put('properties', l_p);
+    return l_f;
+  end feature_obj;
+
+
+  procedure rest_outputs(
+    p_job_id        in  number   default null,
+    p_geojson       in  clob     default null,
+    p_name          in  varchar2 default null,
+    p_folder_name   in  varchar2 default null,
+    p_line_color    in  varchar2 default null,
+    p_line_width    in  number   default null,
+    p_poly_color    in  varchar2 default null,
+    p_poly_alpha    in  number   default 128,
+    p_poly_fill     in  varchar2 default 'Y',
+    p_poly_outline  in  varchar2 default 'Y',
+    p_label_color   in  varchar2 default null,
+    p_label_scale   in  number   default null,
+    p_icon_href     in  varchar2 default null,
+    p_icon_scale    in  number   default null,
+    p_altitude_mode in  varchar2 default null,
+    p_extrude       in  varchar2 default 'N',
+    p_tessellate    in  varchar2 default 'N',
+    p_base_url      in  varchar2 default 'https://HOST/ords/SCHEMA/kmleon/v1',
+    p_asset_rest    out clob,
+    p_job_rest      out clob
+  ) is
+    c_base   varchar2(400)  := rtrim(p_base_url, '/');
+    l_line   varchar2(8) := case when p_line_color  is not null then pck_kml_engine.rgba_to_kml(ltrim(p_line_color,'#')) end;
+    l_poly   varchar2(8) := case when p_poly_color  is not null then pck_kml_engine.rgba_to_kml(ltrim(p_poly_color,'#'), nvl(p_poly_alpha,128)) end;
+    l_label  varchar2(8) := case when p_label_color is not null then pck_kml_engine.rgba_to_kml(ltrim(p_label_color,'#')) end;
+    l_jobref varchar2(40) := case when p_job_id is not null then to_char(p_job_id) else '{job_id}' end;
+    l_feat   json_object_t;
+    l_fc     json_object_t;
+    l_arr    json_array_t;
+    l_doc    kml_jobs.document_name%type;
+    l_fmt    kml_jobs.output_format%type;
+    l_geom   clob;
+  begin
+    ------------------------------------------------------------ single asset
+    if p_geojson is not null and dbms_lob.getlength(p_geojson) > 0 then
+      l_feat := feature_obj(p_geojson, p_name, p_folder_name, l_line, p_line_width, l_poly,
+                            p_poly_fill, p_poly_outline, l_label, p_label_scale,
+                            p_icon_href, p_icon_scale, p_altitude_mode, p_extrude, p_tessellate);
+      p_asset_rest :=
+        '# Add THIS feature (geometry + style) to job ' || l_jobref || ' via REST' || chr(10) ||
+        'curl -X POST "' || c_base || '/jobs/' || l_jobref || '/features" \' || chr(10) ||
+        '  -H "Content-Type: application/json" \' || chr(10) ||
+        '  -d ''' || l_feat.to_clob || '''';
+    else
+      p_asset_rest := '# draw a geometry first';
+    end if;
+
+    ------------------------------------------------------------ whole job
+    if p_job_id is not null then
+      begin
+        select document_name, output_format into l_doc, l_fmt from kml_jobs where job_id = p_job_id;
+      exception when no_data_found then
+        l_doc := 'My export'; l_fmt := 'KMZ';
+      end;
+      l_fc  := json_object_t();
+      l_fc.put('type', 'FeatureCollection');
+      l_arr := json_array_t();
+      for r in (select * from kml_job_assets where job_id = p_job_id order by display_order, asset_id) loop
+        l_geom := nvl(r.geometry_geojson,
+                      case when r.geometry_sdo is not null then sdo_util.to_geojson(r.geometry_sdo) end);
+        if l_geom is not null then
+          l_arr.append(feature_obj(l_geom, r.name, r.folder_name, r.line_color, r.line_width, r.poly_color,
+                                   r.poly_fill, r.poly_outline, r.label_color, r.label_scale,
+                                   r.icon_href, r.icon_scale, r.altitude_mode, r.extrude, r.tessellate));
+        end if;
+      end loop;
+      l_fc.put('features', l_arr);
+
+      p_job_rest :=
+        '# Re-create job #' || p_job_id || ' (' || l_doc || ') entirely over REST.' || chr(10) ||
+        '# 1) create the job  ->  returns {"job_id":N,...}; use N as NEW_JOB_ID below' || chr(10) ||
+        'curl -X POST "' || c_base || '/jobs" \' || chr(10) ||
+        '  -H "Content-Type: application/json" \' || chr(10) ||
+        '  -d ''{"document_name":"' || replace(l_doc, '"', '\"') || '","output_format":"' || l_fmt || '"}''' || chr(10) || chr(10) ||
+        '# 2) add all ' || l_arr.get_size || ' feature(s)  (replace NEW_JOB_ID)' || chr(10) ||
+        'curl -X POST "' || c_base || '/jobs/NEW_JOB_ID/features" \' || chr(10) ||
+        '  -H "Content-Type: application/json" \' || chr(10) ||
+        '  -d ''' || l_fc.to_clob || '''' || chr(10) || chr(10) ||
+        '# 3) run it now' || chr(10) ||
+        'curl -X POST "' || c_base || '/jobs/NEW_JOB_ID/run"' || chr(10) || chr(10) ||
+        '# 4) download the result' || chr(10) ||
+        'curl "' || c_base || '/jobs/NEW_JOB_ID/result" -o export.' || lower(l_fmt);
+    else
+      p_job_rest := '# select a job above to generate its full REST script';
+    end if;
+  exception
+    when others then
+      if p_asset_rest is null then p_asset_rest := '# error: ' || sqlerrm; end if;
+      if p_job_rest   is null then p_job_rest   := '# error: ' || sqlerrm; end if;
+  end rest_outputs;
 
 end pck_kmleon_tools;
 /

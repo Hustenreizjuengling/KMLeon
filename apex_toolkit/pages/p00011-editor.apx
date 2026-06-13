@@ -1026,7 +1026,7 @@ page 11 (
 
     button build-output (
         buttonName: BUILD_OUTPUT
-        label: Build snippet and KML
+        label: Build code (PL/SQL, KML, REST)
         layout {
             sequence: 170
             region: @style
@@ -1148,6 +1148,64 @@ page 11 (
         }
         help {
             helpText: Raw KML style XML for building KML by hand.
+        }
+    )
+
+    pageItem P11_REST_ASSET (
+        type: textarea
+        label {
+            label: REST - add this asset (curl)
+        }
+        layout {
+            sequence: 30
+            region: @out
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        help {
+            helpText: curl that POSTs this geometry + style as a GeoJSON feature to a job's /features endpoint. Set the ORDS base URL on the page.
+        }
+    )
+
+    pageItem P11_REST_JOB (
+        type: textarea
+        label {
+            label: REST - re-create the whole job (curl)
+        }
+        layout {
+            sequence: 40
+            region: @out
+            slot: regionBody
+            columnSpan: 6
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        help {
+            helpText: Full curl sequence to create the selected job, add all its assets, run it and download the result.
+        }
+    )
+
+    pageItem P11_REST_BASE (
+        type: textField
+        label {
+            label: ORDS base URL
+        }
+        layout {
+            sequence: 5
+            region: @out
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            valuePlaceholder: https://host/ords/kml/kmleon/v1
+        }
+        help {
+            helpText: Base of your KMLeon ORDS module (no trailing slash). Used to build the curl snippets.
         }
     )
 
@@ -1446,7 +1504,7 @@ page 11 (
         action js-set-job (
             action: executeJsCode
             settings {
-                jsCode: var nj=apex.item('P11_NEW_JOB').getValue(); if(nj){ apex.item('P11_JOB_ID').setValue(nj, null, true); }
+                jsCode: var nj=apex.item('P11_NEW_JOB').getValue(); if(nj){ var s=document.getElementById('P11_JOB_ID'); if(s && ![].some.call(s.options,function(o){return o.value==nj;})){ s.add(new Option('Editor draft (#'+nj+', DRAFT)', nj)); } apex.item('P11_JOB_ID').setValue(nj, null, true); }
             }
             execution {
                 sequence: 15
@@ -1489,13 +1547,15 @@ page 11 (
         action srv-build (
             action: executeServerSideCode
             settings {
-                itemsToSubmit: P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE
-                itemsToReturn: P11_SNIPPET,P11_KML_STYLE
+                itemsToSubmit: P11_JOB_ID,P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE,P11_REST_BASE
+                itemsToReturn: P11_SNIPPET,P11_KML_STYLE,P11_REST_ASSET,P11_REST_JOB
                 plsqlCode:
                     ```plsql
                     declare
-                      l_snip clob;
-                      l_kml  clob;
+                      l_snip  clob;
+                      l_kml   clob;
+                      l_ras   clob;
+                      l_rjob  clob;
                     begin
                       pck_kmleon_tools.style_outputs(
                         p_geojson       => to_clob(:P11_GEOJSON),
@@ -1516,8 +1576,31 @@ page 11 (
                         p_tessellate    => nvl(:P11_TESSELLATE,'N'),
                         p_snippet       => l_snip,
                         p_kml_style     => l_kml);
-                      :P11_SNIPPET   := l_snip;
-                      :P11_KML_STYLE := l_kml;
+                      pck_kmleon_tools.rest_outputs(
+                        p_job_id        => to_number(:P11_JOB_ID),
+                        p_geojson       => to_clob(:P11_GEOJSON),
+                        p_name          => :P11_NAME,
+                        p_folder_name   => :P11_FOLDER,
+                        p_line_color    => :P11_LINE_COLOR,
+                        p_line_width    => :P11_LINE_WIDTH,
+                        p_poly_color    => :P11_POLY_COLOR,
+                        p_poly_alpha    => nvl(:P11_POLY_ALPHA,128),
+                        p_poly_fill     => :P11_POLY_FILL,
+                        p_poly_outline  => :P11_POLY_OUTLINE,
+                        p_label_color   => :P11_LABEL_COLOR,
+                        p_label_scale   => :P11_LABEL_SCALE,
+                        p_icon_href     => :P11_ICON_HREF,
+                        p_icon_scale    => :P11_ICON_SCALE,
+                        p_altitude_mode => :P11_ALTITUDE_MODE,
+                        p_extrude       => nvl(:P11_EXTRUDE,'N'),
+                        p_tessellate    => nvl(:P11_TESSELLATE,'N'),
+                        p_base_url      => nvl(:P11_REST_BASE, 'https://HOST/ords/SCHEMA/kmleon/v1'),
+                        p_asset_rest    => l_ras,
+                        p_job_rest      => l_rjob);
+                      :P11_SNIPPET    := l_snip;
+                      :P11_KML_STYLE  := l_kml;
+                      :P11_REST_ASSET := l_ras;
+                      :P11_REST_JOB   := l_rjob;
                     end;
                     ```
             }
@@ -1529,7 +1612,7 @@ page 11 (
         action msg-build (
             action: showSuccessMessage
             settings {
-                message: Snippet and KML style built below.
+                message: Code built below - PL/SQL add_asset, KML style, and REST (curl) for the asset and the whole job.
             }
             execution {
                 sequence: 20

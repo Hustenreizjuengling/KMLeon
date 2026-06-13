@@ -29,7 +29,10 @@ format/version matches APEX 26.1 exactly.
   a draft on first save). The job's existing assets are listed in an **Interactive Grid**;
   **click a row** and its geometry loads back onto the map and its style into the form —
   edit and **Save asset** to update it in place (via `PCK_KML_JOB_ASSETS_DML.upd`).
-  **New / clear** starts a fresh feature. **Build
+  **New / clear** starts a fresh feature. **Build code** emits four ready-to-paste
+  outputs: a `PCK_KML_JOB_API.add_asset(...)` call, the raw KML `<Style>` XML, a **curl**
+  to POST this asset via REST (`/jobs/{id}/features`), and a full **curl sequence** to
+  re-create the whole selected job over REST (create → add all features → run → download). **Build
   snippet & KML** copies a ready-made `PCK_KML_JOB_API.add_asset(...)` call *and* the raw
   KML `<Style>` fragment for hardcoding into your own app. **Run job** + **Download**
   render and fetch the KML/KMZ. (Styling/outputs use `PCK_KMLEON_TOOLS.style_outputs`;
@@ -77,6 +80,7 @@ KMLeon schema):
 | `engine_schema` | the schema names resolve to here (the engine schema; package is `AUTHID DEFINER`) |
 | `query_helper(p_query, p_binds, …, p_inline_binds, …)` | parse + describe + produce snippets (Query helper page); `p_inline_binds` lists caller-resolved placeholders |
 | `style_outputs(p_geojson, …style…)` | build an `add_asset(...)` snippet + raw KML `<Style>` XML from a geometry + style choices (Editor page) |
+| `rest_outputs(p_job_id, p_geojson, …style…, p_base_url)` | build curl snippets: POST one asset via REST, and a full sequence to re-create the whole job over the ORDS API (Editor page) |
 | `kml_to_rgb(p_kml)` / `kml_alpha(p_kml)` | convert a stored KML `aabbggrr` color back to `#RRGGBB` / its 0–255 alpha (Editor loads asset colors into the pickers) |
 
 Cross-schema notes: the Query helper validates the SELECT **as the engine schema**
