@@ -24,7 +24,8 @@ format/version matches APEX 26.1 exactly.
   GeoJSON & run* / *Create from SELECT & run*.
 - **11 Editor** — a map-based geometry + style workbench. **Draw** geometries freehand
   (point / line / polygon via a custom MapLibre layer using the map's `getMapObject()`),
-  **style** them with **live preview** (line/fill color, width, opacity), then **Save
+  **style** them with **live preview** (line/fill color, width, opacity), attach
+  **extended data** (a JSON object rendered as the placemark's `<ExtendedData>`), then **Save
   asset** to a job (pick a DRAFT job or any job that still has assets — the editor creates
   a draft on first save). The job's existing assets are listed in an **Interactive Grid**;
   **click a row** and its geometry loads back onto the map and its style into the form —

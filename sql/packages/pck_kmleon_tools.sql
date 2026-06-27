@@ -102,6 +102,7 @@ as
     p_altitude_mode in  varchar2 default null,
     p_extrude       in  varchar2 default 'N',
     p_tessellate    in  varchar2 default 'N',
+    p_extended_data in  clob     default null,   -- JSON object -> ExtendedData
     p_snippet       out clob,
     p_kml_style     out clob
   );
@@ -132,6 +133,7 @@ as
     p_altitude_mode in  varchar2 default null,
     p_extrude       in  varchar2 default 'N',
     p_tessellate    in  varchar2 default 'N',
+    p_extended_data in  clob     default null,   -- JSON object -> ExtendedData
     p_base_url      in  varchar2 default 'https://HOST/ords/SCHEMA/kmleon/v1',
     p_asset_rest    out clob,
     p_job_rest      out clob
@@ -574,6 +576,7 @@ as
     p_altitude_mode in  varchar2 default null,
     p_extrude       in  varchar2 default 'N',
     p_tessellate    in  varchar2 default 'N',
+    p_extended_data in  clob     default null,
     p_snippet       out clob,
     p_kml_style     out clob
   ) is
@@ -641,6 +644,10 @@ as
     if nvl(p_tessellate,'N') = 'Y' then
       p_snippet := p_snippet || '         p_tessellate       => ''Y'','              || chr(10);
     end if;
+    if p_extended_data is not null and dbms_lob.getlength(p_extended_data) > 0 then
+      p_snippet := p_snippet
+              || '         p_extended_data    => ' || qstring(p_extended_data) || ','   || chr(10);
+    end if;
     -- trim the trailing ",\n" and close the call
     p_snippet := rtrim(p_snippet, ',' || chr(10)) || ');';
 
@@ -693,10 +700,13 @@ as
     p_geom in clob, p_name in varchar2, p_folder in varchar2,
     p_line in varchar2, p_lw in number, p_poly in varchar2,
     p_fill in varchar2, p_outline in varchar2, p_label in varchar2, p_lscale in number,
-    p_icon in varchar2, p_iscale in number, p_alt in varchar2, p_extr in varchar2, p_tess in varchar2
+    p_icon in varchar2, p_iscale in number, p_alt in varchar2, p_extr in varchar2, p_tess in varchar2,
+    p_ext in clob default null
   ) return json_object_t is
-    l_f json_object_t := json_object_t();
-    l_p json_object_t := json_object_t();
+    l_f    json_object_t := json_object_t();
+    l_p    json_object_t := json_object_t();
+    l_eo   json_object_t;
+    l_keys json_key_list;
   begin
     l_f.put('type', 'Feature');
     begin
@@ -718,6 +728,18 @@ as
     if p_alt     is not null then l_p.put('ALTITUDE_MODE', p_alt); end if;
     if nvl(p_extr,'N') = 'Y'  then l_p.put('EXTRUDE', 'Y'); end if;
     if nvl(p_tess,'N') = 'Y'  then l_p.put('TESSELLATE', 'Y'); end if;
+    -- merge extended_data keys flat into properties (they map to ExtendedData on
+    -- ingestion because they are not reserved names; nested EXTENDED_DATA would not).
+    if p_ext is not null and dbms_lob.getlength(p_ext) > 0 then
+      begin
+        l_eo   := json_object_t.parse(p_ext);
+        l_keys := l_eo.get_keys;
+        for i in 1 .. l_keys.count loop
+          l_p.put(l_keys(i), l_eo.get(l_keys(i)));
+        end loop;
+      exception when others then null;   -- malformed JSON: skip
+      end;
+    end if;
     l_f.put('properties', l_p);
     return l_f;
   end feature_obj;
@@ -741,6 +763,7 @@ as
     p_altitude_mode in  varchar2 default null,
     p_extrude       in  varchar2 default 'N',
     p_tessellate    in  varchar2 default 'N',
+    p_extended_data in  clob     default null,
     p_base_url      in  varchar2 default 'https://HOST/ords/SCHEMA/kmleon/v1',
     p_asset_rest    out clob,
     p_job_rest      out clob
@@ -761,7 +784,8 @@ as
     if p_geojson is not null and dbms_lob.getlength(p_geojson) > 0 then
       l_feat := feature_obj(p_geojson, p_name, p_folder_name, l_line, p_line_width, l_poly,
                             p_poly_fill, p_poly_outline, l_label, p_label_scale,
-                            p_icon_href, p_icon_scale, p_altitude_mode, p_extrude, p_tessellate);
+                            p_icon_href, p_icon_scale, p_altitude_mode, p_extrude, p_tessellate,
+                            p_extended_data);
       p_asset_rest :=
         '# Add THIS feature (geometry + style) to job ' || l_jobref || ' via REST' || chr(10) ||
         'curl -X POST "' || c_base || '/jobs/' || l_jobref || '/features" \' || chr(10) ||
@@ -787,7 +811,8 @@ as
         if l_geom is not null then
           l_arr.append(feature_obj(l_geom, r.name, r.folder_name, r.line_color, r.line_width, r.poly_color,
                                    r.poly_fill, r.poly_outline, r.label_color, r.label_scale,
-                                   r.icon_href, r.icon_scale, r.altitude_mode, r.extrude, r.tessellate));
+                                   r.icon_href, r.icon_scale, r.altitude_mode, r.extrude, r.tessellate,
+                                   r.extended_data));
         end if;
       end loop;
       l_fc.put('features', l_arr);

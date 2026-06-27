@@ -1005,6 +1005,27 @@ page 11 (
         }
     )
 
+    pageItem P11_EXT_DATA (
+        type: textarea
+        label {
+            label: Extended data (JSON)
+        }
+        layout {
+            sequence: 155
+            region: @style
+            slot: regionBody
+            columnSpan: 12
+            startNewRow: true
+        }
+        appearance {
+            template: @/optional-floating
+            valuePlaceholder: {"country":"DE","population":3677000}
+        }
+        help {
+            helpText: A JSON object of extra attributes. Becomes the placemark's <ExtendedData> (shown in the balloon). Leave empty for none.
+        }
+    )
+
     button add-asset (
         buttonName: ADD_ASSET
         label: Save asset
@@ -1430,7 +1451,7 @@ page 11 (
         action srv-add-asset (
             action: executeServerSideCode
             settings {
-                itemsToSubmit: P11_JOB_ID,P11_ASSET_ID,P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE
+                itemsToSubmit: P11_JOB_ID,P11_ASSET_ID,P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE,P11_EXT_DATA
                 plsqlCode:
                     ```plsql
                     declare
@@ -1461,7 +1482,8 @@ page 11 (
                           p_icon_scale       => :P11_ICON_SCALE,
                           p_altitude_mode    => :P11_ALTITUDE_MODE,
                           p_extrude          => nvl(:P11_EXTRUDE,'N'),
-                          p_tessellate       => nvl(:P11_TESSELLATE,'N'));
+                          p_tessellate       => nvl(:P11_TESSELLATE,'N'),
+                          p_extended_data    => to_clob(:P11_EXT_DATA));
                         commit;
                       else
                         if l_job is null then
@@ -1485,7 +1507,8 @@ page 11 (
                                  p_icon_scale       => :P11_ICON_SCALE,
                                  p_altitude_mode    => :P11_ALTITUDE_MODE,
                                  p_extrude          => nvl(:P11_EXTRUDE,'N'),
-                                 p_tessellate       => nvl(:P11_TESSELLATE,'N'));
+                                 p_tessellate       => nvl(:P11_TESSELLATE,'N'),
+                                 p_extended_data    => to_clob(:P11_EXT_DATA));
                         commit;
                         -- return the (possibly new) job via a helper so we can set
                         -- P11_JOB_ID client-side WITHOUT firing its change handler
@@ -1547,7 +1570,7 @@ page 11 (
         action srv-build (
             action: executeServerSideCode
             settings {
-                itemsToSubmit: P11_JOB_ID,P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE,P11_REST_BASE
+                itemsToSubmit: P11_JOB_ID,P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE,P11_EXT_DATA,P11_REST_BASE
                 itemsToReturn: P11_SNIPPET,P11_KML_STYLE,P11_REST_ASSET,P11_REST_JOB
                 plsqlCode:
                     ```plsql
@@ -1574,6 +1597,7 @@ page 11 (
                         p_altitude_mode => :P11_ALTITUDE_MODE,
                         p_extrude       => nvl(:P11_EXTRUDE,'N'),
                         p_tessellate    => nvl(:P11_TESSELLATE,'N'),
+                        p_extended_data => to_clob(:P11_EXT_DATA),
                         p_snippet       => l_snip,
                         p_kml_style     => l_kml);
                       pck_kmleon_tools.rest_outputs(
@@ -1594,6 +1618,7 @@ page 11 (
                         p_altitude_mode => :P11_ALTITUDE_MODE,
                         p_extrude       => nvl(:P11_EXTRUDE,'N'),
                         p_tessellate    => nvl(:P11_TESSELLATE,'N'),
+                        p_extended_data => to_clob(:P11_EXT_DATA),
                         p_base_url      => nvl(:P11_REST_BASE, 'https://HOST/ords/SCHEMA/kmleon/v1'),
                         p_asset_rest    => l_ras,
                         p_job_rest      => l_rjob);
@@ -1675,7 +1700,7 @@ page 11 (
             action: executeServerSideCode
             settings {
                 itemsToSubmit: P11_ASSET_ID
-                itemsToReturn: P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE
+                itemsToReturn: P11_GEOJSON,P11_NAME,P11_FOLDER,P11_LINE_COLOR,P11_LINE_WIDTH,P11_POLY_COLOR,P11_POLY_ALPHA,P11_POLY_FILL,P11_POLY_OUTLINE,P11_LABEL_COLOR,P11_LABEL_SCALE,P11_ICON_HREF,P11_ICON_SCALE,P11_ALTITUDE_MODE,P11_EXTRUDE,P11_TESSELLATE,P11_EXT_DATA
                 plsqlCode:
                     ```plsql
                     declare
@@ -1699,6 +1724,7 @@ page 11 (
                         :P11_ALTITUDE_MODE := null;
                         :P11_EXTRUDE      := 'N';
                         :P11_TESSELLATE   := 'N';
+                        :P11_EXT_DATA     := null;
                       else
                         select * into l_a from kml_job_assets where asset_id = to_number(:P11_ASSET_ID);
                         :P11_GEOJSON      := nvl(l_a.geometry_geojson, sdo_util.to_geojson(l_a.geometry_sdo));
@@ -1717,6 +1743,7 @@ page 11 (
                         :P11_ALTITUDE_MODE := l_a.altitude_mode;
                         :P11_EXTRUDE      := nvl(l_a.extrude, 'N');
                         :P11_TESSELLATE   := nvl(l_a.tessellate, 'N');
+                        :P11_EXT_DATA     := l_a.extended_data;
                       end if;
                     end;
                     ```
@@ -1790,9 +1817,10 @@ page 11 (
                       :P11_GEOJSON  := null;
                       :P11_NAME     := null;
                       :P11_FOLDER   := null;
+                      :P11_EXT_DATA := null;
                     end;
                     ```
-                itemsToReturn: P11_ASSET_ID,P11_GEOJSON,P11_NAME,P11_FOLDER
+                itemsToReturn: P11_ASSET_ID,P11_GEOJSON,P11_NAME,P11_FOLDER,P11_EXT_DATA
             }
             execution {
                 sequence: 20
@@ -1853,9 +1881,10 @@ page 11 (
                       :P11_GEOJSON  := null;
                       :P11_NAME     := null;
                       :P11_FOLDER   := null;
+                      :P11_EXT_DATA := null;
                     end;
                     ```
-                itemsToReturn: P11_ASSET_ID,P11_GEOJSON,P11_NAME,P11_FOLDER
+                itemsToReturn: P11_ASSET_ID,P11_GEOJSON,P11_NAME,P11_FOLDER,P11_EXT_DATA
             }
             execution {
                 sequence: 20
