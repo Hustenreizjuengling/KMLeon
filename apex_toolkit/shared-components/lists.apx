@@ -57,29 +57,29 @@ list navigation-bar (
         }
     )
 
+    entry login (
+        label: Login
+        icon {
+            imageIconCssClasses: fa-sign-in
+        }
+        layout {
+            sequence: 5
+        }
+        link {
+            target: {
+                page: 9999
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: lower(:APP_USER) = 'nobody'
+        }
+    )
+
 )
 
 list navigation-menu (
     name: Navigation Menu
-
-    entry my-maps (
-        label: My maps
-        icon {
-            imageIconCssClasses: fa-map
-        }
-        layout {
-            sequence: 10
-        }
-        isCurrent {
-            type: pages
-            pages: 110
-        }
-        link {
-            target: {
-                page: 110
-            }
-        }
-    )
 
     entry admin (
         label: Admin
@@ -93,102 +93,6 @@ list navigation-menu (
             target: {
                 type: url
                 url: #
-            }
-        }
-        serverSideCondition {
-            type: expression
-            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
-        }
-    )
-
-    entry home (
-        label: Jobs
-        icon {
-            imageIconCssClasses: fa-list
-        }
-        layout {
-            sequence: 10
-            parentEntry: @admin
-        }
-        isCurrent {
-            type: pages
-            pages: 1
-        }
-        link {
-            target: {
-                page: 1
-            }
-        }
-        serverSideCondition {
-            type: expression
-            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
-        }
-    )
-
-    entry new-job (
-        label: New job
-        icon {
-            imageIconCssClasses: fa-plus
-        }
-        layout {
-            sequence: 20
-            parentEntry: @admin
-        }
-        isCurrent {
-            type: pages
-            pages: 3
-        }
-        link {
-            target: {
-                page: 3
-            }
-        }
-        serverSideCondition {
-            type: expression
-            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
-        }
-    )
-
-    entry editor (
-        label: Editor
-        icon {
-            imageIconCssClasses: fa-pencil-square-o
-        }
-        layout {
-            sequence: 22
-            parentEntry: @admin
-        }
-        isCurrent {
-            type: pages
-            pages: 11
-        }
-        link {
-            target: {
-                page: 11
-            }
-        }
-        serverSideCondition {
-            type: expression
-            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
-        }
-    )
-
-    entry query-helper (
-        label: Query helper
-        icon {
-            imageIconCssClasses: fa-flask
-        }
-        layout {
-            sequence: 25
-            parentEntry: @admin
-        }
-        isCurrent {
-            type: pages
-            pages: 10
-        }
-        link {
-            target: {
-                page: 10
             }
         }
         serverSideCondition {
@@ -221,6 +125,57 @@ list navigation-menu (
         }
     )
 
+    entry editor (
+        label: Editor
+        icon {
+            imageIconCssClasses: fa-pencil-square-o
+        }
+        layout {
+            sequence: 22
+            parentEntry: @admin
+        }
+        isCurrent {
+            type: pages
+            pages: 11
+        }
+        link {
+            target: {
+                page: 11
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry home (
+        label: Jobs
+        icon {
+            imageIconCssClasses: fa-list
+        }
+        layout {
+            sequence: 10
+            parentEntry: @admin
+        }
+        isCurrent {
+            type: pages
+            pages: 1
+        }
+        link {
+            target: {
+                page: 1
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+        security {
+            authorizationScheme: @IST_ADMIN
+        }
+    )
+
     entry logs (
         label: Logs
         icon {
@@ -237,6 +192,73 @@ list navigation-menu (
         link {
             target: {
                 page: 5
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry my-maps (
+        label: My maps
+        icon {
+            imageIconCssClasses: fa-map
+        }
+        layout {
+            sequence: 10
+        }
+        isCurrent {
+            type: pages
+            pages: 110
+        }
+        link {
+            target: {
+                page: 210
+            }
+        }
+    )
+
+    entry new-job (
+        label: New job
+        icon {
+            imageIconCssClasses: fa-plus
+        }
+        layout {
+            sequence: 20
+            parentEntry: @admin
+        }
+        isCurrent {
+            type: pages
+            pages: 3
+        }
+        link {
+            target: {
+                page: 3
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry query-helper (
+        label: Query helper
+        icon {
+            imageIconCssClasses: fa-flask
+        }
+        layout {
+            sequence: 25
+            parentEntry: @admin
+        }
+        isCurrent {
+            type: pages
+            pages: 10
+        }
+        link {
+            target: {
+                page: 10
             }
         }
         serverSideCondition {

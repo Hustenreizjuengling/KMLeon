@@ -1,19 +1,8 @@
-authorization administration-rights (
-    name: Administration Rights
-    type: plSqlFunctionBody
-    settings {
-        plsqlFunctionBody: return true;
-    }
-    error {
-        errorMessage: Insufficient privileges, user is not an Administrator
-    }
-)
-
 authorization IST_ADMIN (
     name: IST_ADMIN
     type: plSqlFunctionBody
     settings {
-        plsqlFunctionBody: return 1=1;
+        plsqlFunctionBody: return 1=1 and LOWER(:APP_USER) != 'nobody';
     }
     error {
         errorMessage: Insufficient privileges - this page requires IST_ADMIN.
@@ -28,10 +17,11 @@ authorization JOB_ACCESS_VALID (
             ```plsql
             -- Public link gate: grants access only when the page's job id and
             -- access_key match a row in KML_JOBS. Re-evaluated every page view.
+            -- Shared by the classic editor (P100_*) and the custom v2 editor (P200_*).
             declare
               l_n   number;
-              l_job number       := to_number(v('P100_JOB_ID') default null on conversion error);
-              l_key varchar2(64)  := v('P100_ACCESS_KEY');
+              l_job number       := to_number(coalesce(v('P200_JOB_ID'), v('P100_JOB_ID')) default null on conversion error);
+              l_key varchar2(64)  := coalesce(v('P200_ACCESS_KEY'), v('P100_ACCESS_KEY'));
             begin
               if l_job is null or l_key is null then
                 return false;
@@ -46,6 +36,17 @@ authorization JOB_ACCESS_VALID (
     }
     error {
         errorMessage: Invalid or missing access key for this job.
+    }
+)
+
+authorization administration-rights (
+    name: Administration Rights
+    type: plSqlFunctionBody
+    settings {
+        plsqlFunctionBody: return true;
+    }
+    error {
+        errorMessage: Insufficient privileges, user is not an Administrator
     }
 )
 

@@ -72,12 +72,36 @@ format/version matches APEX 26.1 exactly.
   re-validates the `access_key` and routes through `PCK_KML_JOB_ASSETS_DML.del`); saving a
   feature ends the draw mode but keeps it loaded for further edits. See **Public editor
   flow** below.
-- **110 My maps** — a **public** landing page (the app's **home page**) that lists a user's
-  jobs from an *Interactive*-style classic report filtered by **User id** + **User tab**
-  (both editable; default to `&APP_USER.` / `APP_USER`). Each row has an **Open editor**
-  link — a declarative link column to page 100 with `P100_JOB_ID` + `P100_ACCESS_KEY`, so
-  APEX builds the URL with the right checksum. All job-creating pages now tag new jobs with
-  `user_tab => 'APP_USER'`, `user_id => v('APP_USER')` so they show up here.
+- **200 Public editor v2** — same contract as page 100 (public, `JOB_ACCESS_VALID`-gated on
+  `P200_JOB_ID`/`P200_ACCESS_KEY`; the auth scheme coalesces P200/P100 so both editors share
+  it), but a **fully hand-built UI** with **no external JS libraries** — the only third-party
+  piece is the APEX-native map region. A three-pane app shell (custom HTML/CSS/JS): a feature
+  list with live search, a floating glass draw toolbar over the map with a live coordinate
+  readout and keyboard shortcuts (P/L/G/Z/Enter/Esc), and a styled inspector with collapsible
+  sections and live style preview. All I/O runs through page ajax processes
+  (`LIST_ASSETS`/`LOAD_ASSET`/`SAVE_ASSET`/`DELETE_ASSET`/`DOWNLOAD`); save posts one JSON
+  payload parsed server-side with `JSON_VALUE`, with the `access_key` re-validated in every
+  process. **Light/dark compatible**: all chrome colours derive from `currentColor` (the live
+  Universal Theme text colour) so it tracks the active theme style (e.g. Vita / Vita Dark)
+  without external switches. Page access protection is **`unrestricted`** (not just the items):
+  the `access_key` (via `JOB_ACCESS_VALID`) is the sole gate, so an external app can deep-link a
+  user straight in **without any APEX checksum** — just
+  `…/ords/r/<ws>/<app>/public-editor-v2?p200_job_id=<id>&p200_access_key=<key>` (or the classic
+  `f?p=<APP>:200:0::NO::P200_JOB_ID,P200_ACCESS_KEY:<id>,<key>`). No REST endpoint is needed to
+  build the link. (Note: `apex validate` flags `SECURITY_BASELINE_REQUIRED_001` for the
+  non-checksum setting — that is intentional for this deliberately public, token-gated page.)
+- **110 My maps** (native base) — a **public** landing page (the app's **home page**) that
+  lists a user's jobs from a **plain native classic report** filtered by **User id** + **User
+  tab** (both editable; default to `&APP_USER.` / `APP_USER`). A declarative **Open editor**
+  link column targets the classic editor (page 100) with `P100_JOB_ID` + `P100_ACCESS_KEY` so
+  APEX builds the URL with the right checksum. All job-creating pages tag new jobs with
+  `user_tab => 'APP_USER'`, `user_id => v('APP_USER')` so they show up here. This page is kept
+  deliberately **100% native APEX** as the baseline variant.
+- **210 My maps v2** — the same landing rebuilt in the **v2 design language** (custom HTML/CSS/JS,
+  no external libs): a job **card grid** (status badge, format, feature count, date) fed by an
+  ajax `LIST_JOBS` process, a styled filter, and — for **authenticated** users only — a **New
+  map** dialog (`CREATE_JOB`) that creates a job and jumps straight into the v2 editor (page
+  200). Cards open the v2 editor. Same `currentColor`-based light/dark theming as page 200.
 
 The side navigation is split into a public **My maps** entry (top) and an **Admin** group
 holding every other page; the Admin group and its links are gated by

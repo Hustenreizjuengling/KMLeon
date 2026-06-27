@@ -1,0 +1,386 @@
+page 210 (
+    name: Meine Karten (v2)
+    alias: MY-MAPS-V2
+    title: KMLeon - Meine Karten (v2)
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+        warnOnUnsavedChanges: false
+    }
+    javaScript {
+        functionAndGlobalVariableDeclaration:
+            ```javascript-browser
+            // Landing page in the v2 visual language. Lists a user's jobs as cards (ajax
+            // LIST_JOBS), lets authenticated users create a new job (ajax CREATE_JOB) and
+            // jumps straight into the v2 editor (page 200). No external JS libraries.
+            window.kmaps = (function () {
+                var jobs = [], canCreate = false;
+                function el(id) { return document.getElementById(id); }
+                function gv(id) { var e = el(id); return e ? e.value : ""; }
+                function esc(s) { return s == null ? "" : String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+                function debounce(fn, ms) { var t; return function () { clearTimeout(t); t = setTimeout(fn, ms); }; }
+
+                function statusInfo(s) {
+                    switch (s) {
+                        case "COMPLETED": return { cls: "is-ok",    label: "Fertig" };
+                        case "FAILED":    return { cls: "is-err",   label: "Fehler" };
+                        case "RUNNING":   return { cls: "is-warn",  label: "Läuft" };
+                        case "PENDING":   return { cls: "is-info",  label: "Wartet" };
+                        case "CANCELLED": return { cls: "is-muted", label: "Abgebrochen" };
+                        default:          return { cls: "is-draft", label: "Entwurf" };
+                    }
+                }
+                function card(j) {
+                    var st = statusInfo(j.status);
+                    return '<article class="km-card">'
+                        + '<div class="km-card-top"><span class="km-status ' + st.cls + '">' + st.label + '</span><span class="km-fmt">' + esc(j.format) + '</span></div>'
+                        + '<h4 class="km-card-name">' + (esc(j.name) || "Ohne Titel") + '</h4>'
+                        + '<div class="km-card-meta"><span><span class="fa fa-map-marker"></span> ' + (j.assets || 0) + ' Objekte</span><span><span class="fa fa-clock-o"></span> ' + esc(j.created) + '</span></div>'
+                        + '<button type="button" class="km-btn km-btn-primary km-card-open" onclick="window.kmaps.openV2(' + j.job_id + ')"><span class="fa fa-pencil-square-o"></span> Öffnen</button>'
+                        + '</article>';
+                }
+                function render() {
+                    var box = el("km-grid"); if (!box) return;
+                    el("km-count").textContent = jobs.length;
+                    if (!jobs.length) {
+                        box.innerHTML = '<div class="km-empty"><span class="fa fa-map-o"></span><p>Noch keine Karten für diesen Benutzer.' + (canCreate ? '<br>Erstelle deine erste Karte.' : '') + '</p>'
+                            + (canCreate ? '<button type="button" class="km-btn km-btn-primary" onclick="window.kmaps.showCreate(true)"><span class="fa fa-plus"></span> Neue Karte</button>' : '') + '</div>';
+                        return;
+                    }
+                    box.innerHTML = jobs.map(card).join("");
+                }
+                function reload() {
+                    apex.server.process("LIST_JOBS", { x01: gv("km-user-id"), x02: gv("km-user-tab") }, {
+                        dataType: "json",
+                        success: function (d) {
+                            jobs = d.jobs || []; canCreate = !!d.can_create;
+                            var nb = el("km-new"); if (nb) nb.style.display = canCreate ? "" : "none";
+                            render();
+                        },
+                        error: function () { apex.message.alert("Karten konnten nicht geladen werden."); }
+                    });
+                }
+                // Navigate to an APEX-built URL (apex_page.get_url, carries the right checksum
+                // for the argumentsMustHaveChecksum editor page). apex_page.get_url may return an
+                // absolute, a root-relative ("/ords/...") or a bare ("f?p=...") URL depending on
+                // the deployment - normalize all three without creating a "//" empty segment.
+                function goEditor(url) {
+                    if (!url) return;
+                    var dest;
+                    if (/^https?:\/\//i.test(url)) {
+                        dest = url;
+                    } else if (url.charAt(0) === "/") {
+                        dest = window.location.origin + url;
+                    } else {
+                        var p = window.location.pathname, i = p.indexOf("/r/"),
+                            base = i > -1 ? p.substring(0, i) : "/ords";
+                        dest = window.location.origin + base + "/" + url;
+                    }
+                    window.location.href = dest;
+                }
+                function openV2(id) {
+                    apex.server.process("EDITOR_URL", { x01: id }, {
+                        dataType: "json",
+                        success: function (r) { if (r && r.url) { goEditor(r.url); } else { apex.message.alert((r && r.error) ? ("Editor-Link: " + r.error) : "Editor-Link konnte nicht erstellt werden."); } },
+                        error: function (jqXHR) { apex.message.alert("Editor-Link fehlgeschlagen: " + (jqXHR && jqXHR.responseText ? jqXHR.responseText.substring(0, 300) : "unbekannt")); }
+                    });
+                }
+                function showCreate(s) {
+                    var m = el("km-modal"); if (!m) return;
+                    m.classList.toggle("is-open", s);
+                    if (s) { var d = el("km-doc"); if (d) { d.value = ""; d.focus(); } }
+                }
+                function create() {
+                    var name = gv("km-doc");
+                    if (!name) { apex.message.alert("Bitte einen Kartennamen angeben."); return; }
+                    var btn = el("km-create-btn"); if (btn) btn.classList.add("is-busy");
+                    apex.server.process("CREATE_JOB", { x01: name, x02: gv("km-fmt"), x03: gv("km-email") }, {
+                        dataType: "json",
+                        success: function (r) {
+                            if (r && r.job_id) { openV2(r.job_id); }
+                            else { if (btn) btn.classList.remove("is-busy"); apex.message.alert("Der Job konnte nicht angelegt werden."); }
+                        },
+                        error: function () { if (btn) btn.classList.remove("is-busy"); apex.message.alert("Der Job konnte nicht angelegt werden."); }
+                    });
+                }
+                function init() {
+                    ["km-user-id", "km-user-tab"].forEach(function (id) {
+                        var e = el(id); if (e) e.addEventListener("input", debounce(reload, 300));
+                    });
+                    document.addEventListener("keydown", function (e) {
+                        if ((e.key || "") === "Escape") showCreate(false);
+                    });
+                    reload();
+                }
+                return { init: init, reload: reload, openV2: openV2, showCreate: showCreate, create: create };
+            })();
+            ```
+        executeWhenPageLoads:
+            ```javascript-browser
+            window.kmaps.init();
+            ```
+    }
+    security {
+        authentication: public
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region shell (
+        name: Meine Karten
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+            columnSpan: 12
+        }
+        advanced {
+            htmlDomId: kmshell
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        source {
+            htmlCode:
+                ```html
+                <!-- security-review: public landing that lists jobs by user_id + user_tab and
+                     hands out each job's access_key so the cards can deep-link into the editor.
+                     This mirrors the previous behaviour; in production scope the listing to the
+                     authenticated user and do not expose access_key to untrusted viewers. Job
+                     creation (CREATE_JOB) is refused unless the session is authenticated. -->
+                <style>
+                  :root {
+                    --kml-text: currentColor;
+                    --kml-muted: color-mix(in srgb, currentColor 58%, transparent);
+                    --kml-bg: color-mix(in srgb, currentColor 9%, transparent);
+                    --kml-surface: color-mix(in srgb, currentColor 5%, transparent);
+                    --kml-surface-2: color-mix(in srgb, currentColor 11%, transparent);
+                    --kml-border: color-mix(in srgb, currentColor 17%, transparent);
+                    --kml-accent: var(--ut-palette-primary, #2f6fed);
+                    --kml-accent-contrast: var(--ut-palette-primary-contrast, #ffffff);
+                    --kml-radius: 16px;
+                    --kml-shadow: 0 18px 40px -22px rgba(15,23,42,.45);
+                  }
+                  #kmshell.t-Region { background: transparent; border: 0; box-shadow: none; }
+                  #kmshell .t-Region-body { padding: 0; }
+                  #kmshell .t-Region-header { display: none; }
+
+                  .km-appbar {
+                    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 18px;
+                    border-radius: var(--kml-radius); border: 1px solid var(--kml-border);
+                    background: linear-gradient(135deg, color-mix(in srgb, var(--kml-accent) 20%, var(--kml-surface-2)), var(--kml-surface-2));
+                    box-shadow: var(--kml-shadow); animation: kmin .4s ease both;
+                  }
+                  .km-brand { display: flex; align-items: center; gap: 13px; }
+                  .km-logo { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 20px; background: var(--kml-accent); color: var(--kml-accent-contrast); box-shadow: 0 6px 16px -4px color-mix(in srgb, var(--kml-accent) 60%, transparent); }
+                  .km-title { font-size: 1.3rem; font-weight: 700; line-height: 1.15; }
+                  .km-sub { font-size: .82rem; color: var(--kml-muted); }
+                  .km-actions { margin-left: auto; display: flex; gap: 9px; }
+
+                  .km-btn { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font: inherit; font-weight: 600; font-size: .88rem; padding: 10px 16px; border-radius: 11px; border: 1px solid var(--kml-border); background: var(--kml-surface); color: var(--kml-text); transition: transform .12s ease, box-shadow .15s ease, background .15s ease; }
+                  .km-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -10px rgba(0,0,0,.4); }
+                  .km-btn-primary { background: var(--kml-accent); border-color: transparent; color: var(--kml-accent-contrast); }
+                  .km-btn-ghost { background: color-mix(in srgb, var(--kml-surface) 70%, transparent); }
+                  .km-btn.is-busy { pointer-events: none; opacity: .75; }
+                  .km-btn.is-busy .fa { animation: kmspin .7s linear infinite; }
+
+                  .km-filter { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+                  .km-field { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; }
+                  .km-field > span { color: var(--kml-muted); font-weight: 600; }
+                  .km-field input, .km-field select { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--kml-border); background: var(--kml-bg); color: var(--kml-text); font: inherit; font-size: .88rem; min-width: 180px; }
+                  .km-field input:focus, .km-field select:focus { outline: 0; border-color: var(--kml-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--kml-accent) 22%, transparent); }
+
+                  .km-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+                  .km-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: var(--kml-radius); border: 1px solid var(--kml-border); background: var(--kml-surface); box-shadow: var(--kml-shadow); animation: kmin .45s ease both; transition: transform .14s ease, box-shadow .15s ease; }
+                  .km-card:hover { transform: translateY(-3px); box-shadow: 0 22px 44px -22px rgba(15,23,42,.5); }
+                  .km-card-top { display: flex; align-items: center; justify-content: space-between; }
+                  .km-status { font-size: .7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+                  .km-status.is-ok    { color: #16a34a; background: color-mix(in srgb, #16a34a 16%, transparent); }
+                  .km-status.is-err   { color: #e5484d; background: color-mix(in srgb, #e5484d 16%, transparent); }
+                  .km-status.is-warn  { color: #d97706; background: color-mix(in srgb, #d97706 16%, transparent); }
+                  .km-status.is-info  { color: #2f6fed; background: color-mix(in srgb, #2f6fed 16%, transparent); }
+                  .km-status.is-draft, .km-status.is-muted { color: var(--kml-muted); background: color-mix(in srgb, currentColor 12%, transparent); }
+                  .km-fmt { font-size: .72rem; font-weight: 700; color: var(--kml-muted); }
+                  .km-card-name { margin: 0; font-size: 1.02rem; font-weight: 700; line-height: 1.25; }
+                  .km-card-meta { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--kml-muted); }
+                  .km-card-meta .fa { width: 14px; }
+                  .km-card-open { margin-top: 6px; justify-content: center; }
+
+                  .km-empty { grid-column: 1 / -1; text-align: center; color: var(--kml-muted); padding: 56px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+                  .km-empty .fa { font-size: 2.4rem; opacity: .4; }
+
+                  .km-modal { position: fixed; inset: 0; display: none; place-items: center; z-index: 50; background: rgba(10,14,20,.5); backdrop-filter: blur(2px); animation: kmfade .2s ease; }
+                  .km-modal.is-open { display: grid; }
+                  /* dialog sits over a dim overlay, so it needs an opaque surface; bg + text
+                     come from the same theme pair (readable fallback) to stay legible either way */
+                  .km-dialog { width: min(440px, 92vw); border-radius: var(--kml-radius); border: 1px solid var(--kml-border); background: var(--ut-component-background-color, #ffffff); color: var(--ut-component-text-color, #1b2430); box-shadow: 0 30px 70px -20px rgba(0,0,0,.6); overflow: hidden; animation: kmpop .22s ease; }
+                  .km-dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--kml-border); }
+                  .km-dialog-head h3 { margin: 0; font-size: 1.05rem; }
+                  .km-x { border: 0; background: transparent; color: var(--kml-muted); cursor: pointer; font-size: 1.1rem; padding: 4px 8px; border-radius: 8px; }
+                  .km-x:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+                  .km-dialog-body { display: flex; flex-direction: column; gap: 14px; padding: 18px; }
+                  .km-dialog-body .km-field input, .km-dialog-body .km-field select { width: 100%; }
+                  .km-dialog-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--kml-border); }
+
+                  @keyframes kmin { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+                  @keyframes kmpop { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
+                  @keyframes kmfade { from { opacity: 0; } to { opacity: 1; } }
+                  @keyframes kmspin { to { transform: rotate(360deg); } }
+                </style>
+
+                <header class="km-appbar">
+                  <div class="km-brand">
+                    <span class="km-logo fa fa-map-o"></span>
+                    <div>
+                      <div class="km-title">Meine Karten</div>
+                      <div class="km-sub"><span id="km-count">0</span>&nbsp;Karten</div>
+                    </div>
+                  </div>
+                  <div class="km-actions">
+                    <button type="button" id="km-new" class="km-btn km-btn-primary" style="display:none" onclick="window.kmaps.showCreate(true)"><span class="fa fa-plus"></span> Neue Karte</button>
+                  </div>
+                </header>
+
+                <div class="km-filter">
+                  <label class="km-field"><span>Benutzer-ID</span><input type="text" id="km-user-id" value="&APP_USER." spellcheck="false"></label>
+                  <label class="km-field"><span>Benutzer-Tab</span><input type="text" id="km-user-tab" value="APP_USER" spellcheck="false"></label>
+                </div>
+
+                <div id="km-grid" class="km-grid"></div>
+
+                <div id="km-modal" class="km-modal">
+                  <div class="km-dialog">
+                    <div class="km-dialog-head">
+                      <h3>Neue Karte erstellen</h3>
+                      <button type="button" class="km-x" onclick="window.kmaps.showCreate(false)"><span class="fa fa-times"></span></button>
+                    </div>
+                    <div class="km-dialog-body">
+                      <label class="km-field"><span>Kartenname</span><input type="text" id="km-doc" placeholder="z. B. Filialen Nord"></label>
+                      <label class="km-field"><span>Format</span><select id="km-fmt"><option value="KMZ">KMZ (gezippt)</option><option value="KML">KML (Text)</option></select></label>
+                      <label class="km-field"><span>Benachrichtigungs-E-Mail (optional)</span><input type="text" id="km-email" placeholder="name@example.com"></label>
+                    </div>
+                    <div class="km-dialog-foot">
+                      <button type="button" class="km-btn km-btn-ghost" onclick="window.kmaps.showCreate(false)">Abbrechen</button>
+                      <button type="button" id="km-create-btn" class="km-btn km-btn-primary" onclick="window.kmaps.create()"><span class="fa fa-pencil"></span> Erstellen &amp; bearbeiten</button>
+                    </div>
+                  </div>
+                </div>
+                ```
+        }
+    )
+
+    process list-jobs (
+        name: LIST_JOBS
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_user varchar2(255) := nvl(v('APP_USER'), 'nobody');
+                begin
+                  apex_json.open_object;
+                  apex_json.write('can_create', case when l_user in ('nobody', 'APEX_PUBLIC_USER') then false else true end);
+                  apex_json.open_array('jobs');
+                  for r in (select job_id, document_name, status, output_format, asset_count,
+                                   to_char(created_at, 'DD.MM.YYYY HH24:MI') as created
+                              from kml_jobs
+                             where user_id  = apex_application.g_x01
+                               and user_tab = apex_application.g_x02
+                             order by job_id desc) loop
+                    apex_json.open_object;
+                    apex_json.write('job_id', r.job_id);
+                    apex_json.write('name', r.document_name);
+                    apex_json.write('status', r.status);
+                    apex_json.write('format', r.output_format);
+                    apex_json.write('assets', r.asset_count);
+                    apex_json.write('created', r.created);
+                    apex_json.close_object;
+                  end loop;
+                  apex_json.close_array;
+                  apex_json.close_object;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: ajaxCallback
+        }
+    )
+
+    process create-job (
+        name: CREATE_JOB
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_user varchar2(255) := nvl(v('APP_USER'), 'nobody');
+                  l_job  number;
+                begin
+                  if l_user in ('nobody', 'APEX_PUBLIC_USER') then
+                    raise_application_error(-20905, 'Anmeldung erforderlich.');
+                  end if;
+                  if apex_application.g_x01 is null then
+                    raise_application_error(-20906, 'Kartenname erforderlich.');
+                  end if;
+                  l_job := pck_kml_job_api.create_job(
+                             p_document_name => apex_application.g_x01,
+                             p_output_format => nvl(apex_application.g_x02, 'KMZ'),
+                             p_notify_email  => apex_application.g_x03,
+                             p_user_tab      => 'APP_USER',
+                             p_user_id       => l_user);
+                  commit;
+                  apex_json.open_object;
+                  apex_json.write('job_id', l_job);
+                  apex_json.close_object;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+            point: ajaxCallback
+        }
+    )
+
+    process editor-url (
+        name: EDITOR_URL
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                -- Build the checksum-correct deep link into the v2 editor (page 200) for one
+                -- job, on demand. APEX computes the URL + any required checksum via get_url;
+                -- the client only resolves it against the ORDS context and navigates.
+                declare
+                  l_job number := to_number(apex_application.g_x01);
+                  l_key varchar2(64);
+                  l_url varchar2(4000);
+                begin
+                  select access_key into l_key from kml_jobs where job_id = l_job;
+                  l_url := apex_page.get_url(
+                             p_page      => 200,
+                             p_items     => 'P200_JOB_ID,P200_ACCESS_KEY',
+                             p_values    => l_job || ',' || l_key,
+                             p_plain_url => true);
+                  apex_json.open_object;
+                  apex_json.write('url', l_url);
+                  apex_json.close_object;
+                exception
+                  when others then
+                    apex_json.open_object;
+                    apex_json.write('error', sqlerrm);
+                    apex_json.close_object;
+                end;
+                ```
+        }
+        execution {
+            sequence: 30
+            point: ajaxCallback
+        }
+    )
+
+)

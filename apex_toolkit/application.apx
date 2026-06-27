@@ -6,20 +6,19 @@ app KMLEON (
     }
     navigation {
         homeUrl: {
-            page: 110
+            page: 210
         }
         loginUrl: {
-            page: LOGIN
+            page: 9999
         }
     }
     navigationMenu {
-        listTemplate: @/side-navigation-menu
+        listTemplate: @/top-navigation-menu
         templateOptions: [
             #DEFAULT#
-            js-defaultCollapsed
-            js-navCollapsed--hidden
-            t-TreeNav--styleA
+            js-tabLike
         ]
+        listPosition: top
         list: @navigation-menu
     }
     navigationBar {
