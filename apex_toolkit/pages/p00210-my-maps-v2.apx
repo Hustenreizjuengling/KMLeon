@@ -18,6 +18,14 @@ page 210 (
             // jumps straight into the v2 editor (page 200). No external JS libraries.
             window.kmaps = (function () {
                 var jobs = [], canCreate = false;
+                var view = "cards", sortKey = "created_iso", sortDir = "desc", filters = {};
+                var COLS = [
+                    { key: "name",        label: "Name",     sort: true, filter: "text" },
+                    { key: "status",      label: "Status",   sort: true, filter: "select" },
+                    { key: "format",      label: "Format",   sort: true, filter: "select" },
+                    { key: "assets",      label: "Objekte",  sort: true, num: true },
+                    { key: "created_iso", label: "Erstellt", sort: true, disp: "created" }
+                ];
                 function el(id) { return document.getElementById(id); }
                 function gv(id) { var e = el(id); return e ? e.value : ""; }
                 function esc(s) { return s == null ? "" : String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -33,6 +41,8 @@ page 210 (
                         default:          return { cls: "is-draft", label: "Entwurf" };
                     }
                 }
+
+                // ---- card view ----
                 function card(j) {
                     var st = statusInfo(j.status);
                     return '<article class="km-card">'
@@ -42,6 +52,73 @@ page 210 (
                         + '<button type="button" class="km-btn km-btn-primary km-card-open" onclick="window.kmaps.openV2(' + j.job_id + ')"><span class="fa fa-pencil-square-o"></span> Öffnen</button>'
                         + '</article>';
                 }
+                function renderCards() { el("km-grid").innerHTML = jobs.map(card).join(""); }
+
+                // ---- table view (client-side filter + sort over the loaded jobs) ----
+                function tableRows() {
+                    var r = jobs.slice();
+                    if (filters.name)   { var q = filters.name.toLowerCase(); r = r.filter(function (j) { return (j.name || "").toLowerCase().indexOf(q) >= 0; }); }
+                    if (filters.status) { r = r.filter(function (j) { return j.status === filters.status; }); }
+                    if (filters.format) { r = r.filter(function (j) { return j.format === filters.format; }); }
+                    var col = COLS.filter(function (c) { return c.key === sortKey; })[0] || {};
+                    r.sort(function (a, b) {
+                        var va = a[sortKey], vb = b[sortKey];
+                        if (col.num) { va = +va || 0; vb = +vb || 0; }
+                        else { va = (va == null ? "" : String(va)).toLowerCase(); vb = (vb == null ? "" : String(vb)).toLowerCase(); }
+                        var d = va < vb ? -1 : va > vb ? 1 : 0;
+                        return sortDir === "asc" ? d : -d;
+                    });
+                    return r;
+                }
+                function rowHtml(j) {
+                    var st = statusInfo(j.status);
+                    return '<tr>'
+                        + '<td class="km-td-name">' + (esc(j.name) || "Ohne Titel") + '</td>'
+                        + '<td><span class="km-status ' + st.cls + '">' + st.label + '</span></td>'
+                        + '<td>' + esc(j.format) + '</td>'
+                        + '<td class="num">' + (j.assets || 0) + '</td>'
+                        + '<td>' + esc(j.created) + '</td>'
+                        + '<td class="km-td-open"><button type="button" class="km-btn km-btn-primary km-btn-sm" onclick="window.kmaps.openV2(' + j.job_id + ')"><span class="fa fa-pencil-square-o"></span> Öffnen</button></td>'
+                        + '</tr>';
+                }
+                function fillTable() {
+                    Array.prototype.forEach.call(document.querySelectorAll(".km-table th[data-sort]"), function (th) {
+                        var a = th.querySelector(".km-arr");
+                        if (a) a.textContent = (th.getAttribute("data-sort") === sortKey) ? (sortDir === "asc" ? "▲" : "▼") : "";
+                    });
+                    var data = tableRows(), tb = el("km-tbody"); if (!tb) return;
+                    tb.innerHTML = data.length ? data.map(rowHtml).join("")
+                        : '<tr><td colspan="6" class="km-norow">Kein Treffer für den Filter.</td></tr>';
+                }
+                function selOptions(key, sel) {
+                    var seen = {}, out = '<option value="">Alle</option>';
+                    jobs.forEach(function (j) {
+                        var v = j[key]; if (v == null || seen[v]) return; seen[v] = 1;
+                        var disp = (key === "status") ? statusInfo(v).label : v;
+                        out += '<option value="' + esc(v) + '"' + (sel === v ? ' selected' : '') + '>' + esc(disp) + '</option>';
+                    });
+                    return out;
+                }
+                function renderTable() {
+                    var head = '<tr>' + COLS.map(function (c) {
+                        return '<th' + (c.sort ? ' data-sort="' + c.key + '" class="km-sortable"' : '') + (c.num ? ' class="num"' : '') + '>' + c.label + (c.sort ? ' <span class="km-arr"></span>' : '') + '</th>';
+                    }).join("") + '<th></th></tr>';
+                    var frow = '<tr class="km-filter-row">' + COLS.map(function (c) {
+                        if (c.filter === "text")   { return '<th><input type="text" data-filter="' + c.key + '" value="' + esc(filters[c.key] || "") + '" placeholder="Filter…"></th>'; }
+                        if (c.filter === "select") { return '<th><select data-filter="' + c.key + '">' + selOptions(c.key, filters[c.key] || "") + '</select></th>'; }
+                        return '<th></th>';
+                    }).join("") + '<th></th></tr>';
+                    el("km-grid").innerHTML = '<div class="km-table-wrap"><table class="km-table"><thead>' + head + frow + '</thead><tbody id="km-tbody"></tbody></table></div>';
+                    fillTable();
+                }
+                function setView(v) {
+                    if (v !== "cards" && v !== "table") return;
+                    view = v;
+                    Array.prototype.forEach.call(document.querySelectorAll(".km-vbtn"), function (b) {
+                        b.classList.toggle("is-active", b.getAttribute("data-view") === v);
+                    });
+                    render();
+                }
                 function render() {
                     var box = el("km-grid"); if (!box) return;
                     el("km-count").textContent = jobs.length;
@@ -50,7 +127,7 @@ page 210 (
                             + (canCreate ? '<button type="button" class="km-btn km-btn-primary" onclick="window.kmaps.showCreate(true)"><span class="fa fa-plus"></span> Neue Karte</button>' : '') + '</div>';
                         return;
                     }
-                    box.innerHTML = jobs.map(card).join("");
+                    if (view === "table") { renderTable(); } else { renderCards(); }
                 }
                 function reload() {
                     apex.server.process("LIST_JOBS", { x01: gv("km-user-id"), x02: gv("km-user-tab") }, {
@@ -113,9 +190,29 @@ page 210 (
                     document.addEventListener("keydown", function (e) {
                         if ((e.key || "") === "Escape") showCreate(false);
                     });
+                    // delegated table sort + filter (survives tbody re-renders, keeps input focus)
+                    var grid = el("km-grid");
+                    if (grid) {
+                        grid.addEventListener("click", function (e) {
+                            var th = e.target.closest ? e.target.closest("th.km-sortable") : null;
+                            if (!th) return;
+                            var k = th.getAttribute("data-sort");
+                            if (sortKey === k) { sortDir = (sortDir === "asc") ? "desc" : "asc"; }
+                            else { sortKey = k; sortDir = "asc"; }
+                            fillTable();
+                        });
+                        function onFilter(e) {
+                            var f = e.target.closest ? e.target.closest("[data-filter]") : null;
+                            if (!f) return;
+                            filters[f.getAttribute("data-filter")] = f.value;
+                            fillTable();
+                        }
+                        grid.addEventListener("input", onFilter);
+                        grid.addEventListener("change", onFilter);
+                    }
                     reload();
                 }
-                return { init: init, reload: reload, openV2: openV2, showCreate: showCreate, create: create };
+                return { init: init, reload: reload, openV2: openV2, showCreate: showCreate, create: create, setView: setView };
             })();
             ```
         executeWhenPageLoads:
@@ -210,6 +307,30 @@ page 210 (
                   .km-card-meta .fa { width: 14px; }
                   .km-card-open { margin-top: 6px; justify-content: center; }
 
+                  .km-viewtoggle { display: inline-flex; border: 1px solid var(--kml-border); border-radius: 11px; overflow: hidden; }
+                  .km-vbtn { border: 0; background: transparent; color: var(--kml-muted); cursor: pointer; padding: 9px 12px; font: inherit; transition: background .14s ease, color .14s ease; }
+                  .km-vbtn:hover { background: color-mix(in srgb, currentColor 8%, transparent); color: var(--kml-text); }
+                  .km-vbtn.is-active { background: var(--kml-accent); color: var(--kml-accent-contrast); }
+                  .km-btn-sm { padding: 6px 11px; font-size: .8rem; }
+
+                  .km-table-wrap { grid-column: 1 / -1; overflow-x: auto; border: 1px solid var(--kml-border); border-radius: var(--kml-radius); background: var(--kml-surface); box-shadow: var(--kml-shadow); animation: kmin .35s ease both; }
+                  .km-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+                  .km-table thead th { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--kml-border); color: var(--kml-muted); font-weight: 700; white-space: nowrap; }
+                  .km-table th.num { text-align: right; }
+                  .km-table th.km-sortable { cursor: pointer; user-select: none; }
+                  .km-table th.km-sortable:hover { color: var(--kml-text); }
+                  .km-arr { color: var(--kml-accent); font-size: .72em; }
+                  .km-filter-row th { padding: 8px 10px; border-bottom: 1px solid var(--kml-border); }
+                  .km-filter-row input, .km-filter-row select { width: 100%; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--kml-border); background: var(--kml-bg); color: var(--kml-text); font: inherit; font-size: .82rem; }
+                  .km-filter-row input:focus, .km-filter-row select:focus { outline: 0; border-color: var(--kml-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--kml-accent) 22%, transparent); }
+                  .km-table tbody td { padding: 11px 14px; border-bottom: 1px solid color-mix(in srgb, var(--kml-border) 60%, transparent); }
+                  .km-table tbody tr:last-child td { border-bottom: 0; }
+                  .km-table tbody tr:hover { background: color-mix(in srgb, var(--kml-accent) 7%, transparent); }
+                  .km-td-name { font-weight: 600; }
+                  .km-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+                  .km-td-open { text-align: right; white-space: nowrap; }
+                  .km-norow { text-align: center; color: var(--kml-muted); padding: 28px; }
+
                   .km-empty { grid-column: 1 / -1; text-align: center; color: var(--kml-muted); padding: 56px 16px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
                   .km-empty .fa { font-size: 2.4rem; opacity: .4; }
 
@@ -244,6 +365,10 @@ page 210 (
                     </div>
                   </div>
                   <div class="km-actions">
+                    <div class="km-viewtoggle" role="group" aria-label="Ansicht">
+                      <button type="button" class="km-vbtn is-active" data-view="cards" onclick="window.kmaps.setView('cards')" title="Kacheln"><span class="fa fa-th-large"></span></button>
+                      <button type="button" class="km-vbtn" data-view="table" onclick="window.kmaps.setView('table')" title="Tabelle"><span class="fa fa-table"></span></button>
+                    </div>
                     <button type="button" id="km-new" class="km-btn km-btn-primary" style="display:none" onclick="window.kmaps.showCreate(true)"><span class="fa fa-plus"></span> Neue Karte</button>
                   </div>
                 </header>
@@ -289,7 +414,8 @@ page 210 (
                   apex_json.write('can_create', case when l_user in ('nobody', 'APEX_PUBLIC_USER') then false else true end);
                   apex_json.open_array('jobs');
                   for r in (select job_id, document_name, status, output_format, asset_count,
-                                   to_char(created_at, 'DD.MM.YYYY HH24:MI') as created
+                                   to_char(created_at, 'DD.MM.YYYY HH24:MI')      as created,
+                                   to_char(created_at, 'YYYY-MM-DD HH24:MI:SS')   as created_iso
                               from kml_jobs
                              where user_id  = apex_application.g_x01
                                and user_tab = apex_application.g_x02
@@ -301,6 +427,7 @@ page 210 (
                     apex_json.write('format', r.output_format);
                     apex_json.write('assets', r.asset_count);
                     apex_json.write('created', r.created);
+                    apex_json.write('created_iso', r.created_iso);
                     apex_json.close_object;
                   end loop;
                   apex_json.close_array;
