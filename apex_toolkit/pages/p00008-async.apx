@@ -26,6 +26,7 @@ page 8 (
             ```
     }
     security {
+        authorizationScheme: @IST_ADMIN
         pageAccessProtection: argumentsMustHaveChecksum
         formAutoComplete: false
     }

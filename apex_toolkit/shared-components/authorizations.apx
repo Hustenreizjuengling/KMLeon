@@ -9,3 +9,14 @@ authorization administration-rights (
     }
 )
 
+authorization IST_ADMIN (
+    name: IST_ADMIN
+    type: plSqlFunctionBody
+    settings {
+        plsqlFunctionBody: return 1=1;
+    }
+    error {
+        errorMessage: Insufficient privileges - this page requires IST_ADMIN.
+    }
+)
+

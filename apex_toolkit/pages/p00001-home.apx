@@ -10,6 +10,7 @@ page 1 (
         cursorFocus: doNotFocusCursor
     }
     security {
+        authorizationScheme: @IST_ADMIN
         pageAccessProtection: argumentsMustHaveChecksum
         formAutoComplete: false
     }

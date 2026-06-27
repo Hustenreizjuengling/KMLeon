@@ -7,6 +7,7 @@ page 9 (
         templateOptions: #DEFAULT#
     }
     security {
+        authorizationScheme: @IST_ADMIN
         pageAccessProtection: argumentsMustHaveChecksum
         formAutoComplete: false
     }
