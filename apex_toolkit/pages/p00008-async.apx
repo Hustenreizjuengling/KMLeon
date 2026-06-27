@@ -484,7 +484,9 @@ page 8 (
                                    pck_kmleon_tools.row_sleep(:secs)   as delayed_note
                               from dual
                             connect by level <= :n
-                        ]');
+                        ]',
+                        p_user_tab      => 'APP_USER',
+                        p_user_id       => v('APP_USER'));
                       commit;
                       if nvl(:P8_MODE, 'ASYNC') = 'SYNC' then
                         pck_kml_job_api.run_now(l_job);                    -- blocks until done

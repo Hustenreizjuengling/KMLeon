@@ -226,7 +226,9 @@ page 3 (
                       l_job := pck_kml_job_api.create_job(
                                  p_document_name => :P3_DOCUMENT_NAME,
                                  p_output_format => nvl(:P3_OUTPUT_FORMAT, 'KMZ'),
-                                 p_notify_email  => :P3_NOTIFY_EMAIL);
+                                 p_notify_email  => :P3_NOTIFY_EMAIL,
+                                 p_user_tab      => 'APP_USER',
+                                 p_user_id       => v('APP_USER'));
                       if :P3_GEOJSON is not null then
                         l_n := pck_kml_job_api.add_features_geojson(l_job, :P3_GEOJSON);
                       end if;
@@ -278,7 +280,9 @@ page 3 (
                                  p_document_name => :P3_DOCUMENT_NAME,
                                  p_source_query  => :P3_QUERY,
                                  p_output_format => nvl(:P3_OUTPUT_FORMAT, 'KMZ'),
-                                 p_notify_email  => :P3_NOTIFY_EMAIL);
+                                 p_notify_email  => :P3_NOTIFY_EMAIL,
+                                 p_user_tab      => 'APP_USER',
+                                 p_user_id       => v('APP_USER'));
                       commit;
                       pck_kml_job_api.run_now(l_job);
                     end;

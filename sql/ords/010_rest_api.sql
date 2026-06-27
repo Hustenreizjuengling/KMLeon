@@ -11,7 +11,7 @@
 --
 -- RESULTING ENDPOINTS  (base: /ords/<schema-alias>/kmleon/v1/)
 --   GET    jobs                 list recent jobs
---   POST   jobs                 create an ASSETS job   (JSON body)        -> {job_id,status}
+--   POST   jobs                 create an ASSETS job   (JSON body)        -> {job_id,status,access_key}
 --   GET    jobs/{id}            job status + metadata
 --   POST   jobs/{id}/features   add features from a GeoJSON FeatureCollection (JSON body)
 --   POST   jobs/{id}/submit     DRAFT -> PENDING (needs KMLEON_DISPATCHER enabled; it is
@@ -94,6 +94,7 @@ begin
         l_in  json_object_t;
         l_doc varchar2(400);
         l_id  number;
+        l_key varchar2(64);
       begin
         l_in  := json_object_t.parse(:body_text);
         l_doc := l_in.get_string('document_name');
@@ -112,9 +113,10 @@ begin
                     p_user_id         => l_in.get_string('user_id'),
                     p_notify_email    => l_in.get_string('notify_email'));
           commit;
+          l_key := pck_kml_job_api.get_access_key(l_id);
           :status_code := 201;
           owa_util.mime_header('application/json');
-          htp.p('{"job_id":' || l_id || ',"status":"DRAFT"}');
+          htp.p('{"job_id":' || l_id || ',"status":"DRAFT","access_key":"' || l_key || '"}');
         end if;
       exception
         when others then        -- malformed JSON body etc.

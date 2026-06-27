@@ -59,10 +59,67 @@ format/version matches APEX 26.1 exactly.
   `PCK_KML_CONFIG_DML` + `PCK_KML_MAINTENANCE.apply_schedule`; *Run cleanup now*
   calls `PCK_KML_MAINTENANCE.run_cleanup(p_force => true)`. Plus an IR over all config.
 - **9 Download** — streams `result_kmz`/`result_kml` as a file (before-header process).
+- **100 Public editor** — a **public, link-based** editor for end users of *your other
+  apps*. Not in the nav and not behind `IST_ADMIN`; it is gated by the
+  `JOB_ACCESS_VALID` authorization scheme, which only grants access when the URL's
+  `P100_JOB_ID` **and** `P100_ACCESS_KEY` match a row in `KML_JOBS`. As defence in depth,
+  **every data query, save, load and download on the page is also bound to the
+  `access_key`**, so access does not depend on authorization-scheme caching. The user
+  draws/styles/edits the features of that one job and downloads the
+  KML/KMZ. Download renders **on the fly** via `PCK_KML_ENGINE.build_kml` (no `run_job`,
+  no asset cleanup), so the job stays a DRAFT and stays editable. Features can be **deleted
+  straight from the grid** (a per-row button calls the `DELETE_ASSET` ajax process, which
+  re-validates the `access_key` and routes through `PCK_KML_JOB_ASSETS_DML.del`); saving a
+  feature ends the draw mode but keeps it loaded for further edits. See **Public editor
+  flow** below.
+- **110 My maps** — a **public** landing page (the app's **home page**) that lists a user's
+  jobs from an *Interactive*-style classic report filtered by **User id** + **User tab**
+  (both editable; default to `&APP_USER.` / `APP_USER`). Each row has an **Open editor**
+  link — a declarative link column to page 100 with `P100_JOB_ID` + `P100_ACCESS_KEY`, so
+  APEX builds the URL with the right checksum. All job-creating pages now tag new jobs with
+  `user_tab => 'APP_USER'`, `user_id => v('APP_USER')` so they show up here.
+
+The side navigation is split into a public **My maps** entry (top) and an **Admin** group
+holding every other page; the Admin group and its links are gated by
+`apex_authorization.is_authorized('IST_ADMIN')` (via `serverSideCondition`), so they vanish
+without the privilege. All toolkit pages except the two public ones (100, 110) and login
+require the **`IST_ADMIN`** authorization scheme (currently `return 1=1;` — replace with
+real logic to lock the toolkit down). The public pages also set `navigation {
+warnOnUnsavedChanges: false }` so navigating away (Open editor / Download) never prompts.
 
 Actions are wired as **Dynamic Actions** running server-side PL/SQL (no page
 branches); the download uses a before-header streaming process. The map layer omits
 point-only styling so it renders points, lines and polygons from one geojson source.
+
+## Public editor flow (external integration)
+
+Let users of your *other* APEX apps polish a KMLeon export themselves, then download it —
+without giving them access to the toolkit. Your app creates the job and hands the user a
+signed-by-token deep link:
+
+```plsql
+declare
+  l_job number;
+  l_key varchar2(64);
+  l_n   number;
+begin
+  l_job := pck_kml_job_api.create_job(p_document_name => 'Customer map');
+  l_n   := pck_kml_job_api.add_features_geojson(l_job, '<your FeatureCollection>'); -- or add_asset
+  commit;
+  l_key := pck_kml_job_api.get_access_key(l_job);   -- generated on create
+  -- redirect the user to the public editor (same APEX instance):
+  --   f?p=<TOOLKIT_APP_ID>:100:0::::P100_JOB_ID,P100_ACCESS_KEY:<l_job>,<l_key>
+end;
+```
+
+- `KML_JOBS.access_key` is generated automatically on insert (64 hex chars,
+  `PCK_KML_JOBS_DML.gen_access_key`). Read it back with
+  `PCK_KML_JOB_API.get_access_key(job_id)`; the **REST** `POST /jobs` also returns it.
+- The two link items are `sessionStateProtection: unrestricted`, so the link needs **no
+  APEX checksum** — the unguessable `access_key` is the access control.
+- The job is **not** submitted/rendered by your app; the user finishes it in the editor
+  and downloads on demand. The job stays DRAFT throughout, so it can be reopened/edited
+  with the same link any number of times.
 
 ## Helper package: `PCK_KMLEON_TOOLS`
 

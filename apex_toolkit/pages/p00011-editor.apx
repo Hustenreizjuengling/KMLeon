@@ -8,12 +8,16 @@ page 11 (
     }
     navigation {
         cursorFocus: doNotFocusCursor
+        warnOnUnsavedChanges: false
     }
     javaScript {
         functionAndGlobalVariableDeclaration:
             ```javascript-browser
             window.kmleonEditor = (function () {
-                var map = null, regionId = "editmap", type = null, coords = [], SRC = "kmlDraw", inited = false;
+                var cfg = { prefix: "P11", regionId: "editmap" };
+                var map = null, type = null, coords = [], SRC = "kmlDraw", inited = false;
+                function it(s) { return apex.item(cfg.prefix + "_" + s); }
+                function iv(s) { try { return it(s).getValue(); } catch (e) { return null; } }
 
                 function geom() {
                     if (type === "Point")      return coords.length ? { type: "Point", coordinates: coords[0] } : null;
@@ -38,7 +42,7 @@ page 11 (
                 function redraw() {
                     if (map && map.getSource(SRC)) { map.getSource(SRC).setData(fc()); }
                     var g = geom();
-                    apex.item("P11_GEOJSON").setValue(g ? JSON.stringify(g) : "");
+                    it("GEOJSON").setValue(g ? JSON.stringify(g) : "");
                 }
                 function bounds() {
                     if (!coords.length) { return null; }
@@ -51,12 +55,11 @@ page 11 (
                 }
                 function applyStyle() {
                     if (!map) { return; }
-                    function v(n) { try { return apex.item(n).getValue(); } catch (e) { return null; } }
-                    var lc = v("P11_LINE_COLOR") || "#3388ff";
-                    var pc = v("P11_POLY_COLOR") || "#3388ff";
-                    var lw = parseFloat(v("P11_LINE_WIDTH")) || 2;
-                    var pa = (parseFloat(v("P11_POLY_ALPHA")) || 128) / 255;
-                    var fill = v("P11_POLY_FILL") !== "N";
+                    var lc = iv("LINE_COLOR") || "#3388ff";
+                    var pc = iv("POLY_COLOR") || "#3388ff";
+                    var lw = parseFloat(iv("LINE_WIDTH")) || 2;
+                    var pa = (parseFloat(iv("POLY_ALPHA")) || 128) / 255;
+                    var fill = iv("POLY_FILL") !== "N";
                     if (map.getLayer("kmlFill"))  { map.setPaintProperty("kmlFill", "fill-color", pc); map.setPaintProperty("kmlFill", "fill-opacity", fill ? pa : 0); }
                     if (map.getLayer("kmlLine"))  { map.setPaintProperty("kmlLine", "line-color", lc); map.setPaintProperty("kmlLine", "line-width", lw); }
                     if (map.getLayer("kmlPoint")) { map.setPaintProperty("kmlPoint", "circle-color", lc); }
@@ -74,9 +77,10 @@ page 11 (
                     });
                 }
                 return {
-                    init: function () {
+                    init: function (opts) {
+                        if (opts) { if (opts.prefix) { cfg.prefix = opts.prefix; } if (opts.regionId) { cfg.regionId = opts.regionId; } }
                         if (inited) { return; }
-                        var r = apex.region(regionId);
+                        var r = apex.region(cfg.regionId);
                         if (!r) { return; }
                         map = (typeof r.getMapObject === "function") ? r.getMapObject() : null;
                         if (!map) { return; }
@@ -92,8 +96,8 @@ page 11 (
                         }
                         map.on("click", onClick);
                         map.on("dblclick", function (e) { if (type === "LineString" || type === "Polygon") { e.preventDefault(); kmleonEditor.finish(); } });
-                        ["P11_LINE_COLOR", "P11_POLY_COLOR", "P11_LINE_WIDTH", "P11_POLY_ALPHA", "P11_POLY_FILL"].forEach(function (n) {
-                            try { apex.item(n).element.on("change", applyStyle); } catch (e) {}
+                        ["LINE_COLOR", "POLY_COLOR", "LINE_WIDTH", "POLY_ALPHA", "POLY_FILL"].forEach(function (n) {
+                            try { it(n).element.on("change", applyStyle); } catch (e) {}
                         });
                         applyStyle();
                     },
@@ -1405,7 +1409,9 @@ page 11 (
                     begin
                       :P11_JOB_ID := pck_kml_job_api.create_job(
                                        p_document_name => 'Editor draft',
-                                       p_output_format => 'KMZ');
+                                       p_output_format => 'KMZ',
+                                       p_user_tab      => 'APP_USER',
+                                       p_user_id       => v('APP_USER'));
                       commit;
                     end;
                     ```
@@ -1490,7 +1496,9 @@ page 11 (
                         if l_job is null then
                           l_job := pck_kml_job_api.create_job(
                                      p_document_name => 'Editor draft',
-                                     p_output_format => 'KMZ');
+                                     p_output_format => 'KMZ',
+                                     p_user_tab      => 'APP_USER',
+                                     p_user_id       => v('APP_USER'));
                         end if;
                         l_a := pck_kml_job_api.add_asset(
                                  p_job_id           => l_job,

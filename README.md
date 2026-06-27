@@ -90,7 +90,7 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 
 | Object | Role |
 |---|---|
-| `KML_JOBS` | one row per export request + result + status (`PCK_KML_JOBS_DML`) |
+| `KML_JOBS` | one row per export request + result + status + `access_key` for link-based public editing (`PCK_KML_JOBS_DML`) |
 | `KML_JOB_ASSETS` | one row per feature: geometry + metadata + style (`PCK_KML_JOB_ASSETS_DML`) |
 | `KML_CONFIG` | typed key/value store: SETTINGs + auto-maintained METRICs (`PCK_KML_CONFIG_DML`) |
 | `KML_LOG` | central log (`PCK_KML_LOG`) |
@@ -307,8 +307,11 @@ An **APEX 26.1** app (human-readable *APEXLang* `.apx` format) under
 Build jobs from GeoJSON or a `SELECT`, run them sync / async, preview geometries
 on a map, inspect `KML_LOG`, manage cleanup settings, and use the **Query helper**
 to analyse a candidate SELECT (column → role mapping) and emit ready-to-paste
-PL/SQL snippets for integrating KMLeon into your own code. The app's helpers
-live in `PCK_KMLEON_TOOLS` (created by `setup.sql`). Import it with SQLcl
+PL/SQL snippets for integrating KMLeon into your own code. It also includes a
+**map Editor** (draw/style features) and a **public, link-based editor** so your
+*other* apps can let an end user finish a job and download it themselves — via a
+deep link carrying the job id + its `access_key` (no toolkit login). The app's
+helpers live in `PCK_KMLEON_TOOLS` (created by `setup.sql`). Import it with SQLcl
 (`apex import -input apex_toolkit`) or as a zip via App Builder, then run
 `@apex_toolkit/setup.sql`. See [`apex_toolkit/README.md`](apex_toolkit/README.md).
 

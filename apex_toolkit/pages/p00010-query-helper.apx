@@ -445,7 +445,9 @@ page 10 (
                                  p_document_name => nvl(:P10_DOC_NAME, 'My export'),
                                  p_source_query  => :P10_QUERY,
                                  p_source_binds  => :P10_BINDS,
-                                 p_output_format => nvl(:P10_FORMAT, 'KMZ'));
+                                 p_output_format => nvl(:P10_FORMAT, 'KMZ'),
+                                 p_user_tab      => 'APP_USER',
+                                 p_user_id       => v('APP_USER'));
                       commit;
                       pck_kml_job_api.submit_job(l_job, p_async => true);
                     end;

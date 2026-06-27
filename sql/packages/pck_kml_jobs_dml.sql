@@ -11,6 +11,10 @@ create or replace package pck_kml_jobs_dml
 as
   c_pkg constant varchar2(30) := 'PCK_KML_JOBS_DML';
 
+  -- Generate an unguessable access token (64 hex chars). Used for link-based
+  -- public access; ins() calls this when p_access_key is not supplied.
+  function gen_access_key return varchar2;
+
   function ins(
     p_document_name   in varchar2,
     p_description     in varchar2 default null,
@@ -25,6 +29,7 @@ as
     p_source_mode     in varchar2 default 'STREAM',
     p_source_query    in clob     default null,
     p_source_binds    in clob     default null,
+    p_access_key      in varchar2 default null,
     p_created_by      in varchar2 default null
   ) return number;
 
@@ -64,6 +69,14 @@ end pck_kml_jobs_dml;
 create or replace package body pck_kml_jobs_dml
 as
 
+  function gen_access_key return varchar2 is
+  begin
+    -- 64 hex chars from two GUIDs. Unguessable enough for a link token; swap in
+    -- dbms_crypto.randombytes(32) if you need cryptographic-grade entropy.
+    return lower(rawtohex(sys_guid()) || rawtohex(sys_guid()));
+  end gen_access_key;
+
+
   function ins(
     p_document_name   in varchar2,
     p_description     in varchar2 default null,
@@ -78,12 +91,14 @@ as
     p_source_mode     in varchar2 default 'STREAM',
     p_source_query    in clob     default null,
     p_source_binds    in clob     default null,
+    p_access_key      in varchar2 default null,
     p_created_by      in varchar2 default null
   ) return number
   is
     l_id  number;
     l_now timestamp    := systimestamp;
     l_who varchar2(128) := nvl(p_created_by, user);
+    l_key varchar2(64)  := nvl(p_access_key, gen_access_key);
   begin
     if upper(p_source_type) = 'QUERY'
        and (p_source_query is null or dbms_lob.getlength(p_source_query) = 0)
@@ -94,12 +109,12 @@ as
     insert into kml_jobs (
       document_name, description, output_format, output_filename, priority,
       user_tab, user_id, notify_email, status, source_type, source_mode, source_query, source_binds,
-      created_at, created_by, updated_at, updated_by
+      access_key, created_at, created_by, updated_at, updated_by
     ) values (
       p_document_name, p_description, upper(p_output_format), p_output_filename, p_priority,
       p_user_tab, p_user_id, p_notify_email, p_status, upper(p_source_type), upper(p_source_mode),
       p_source_query, p_source_binds,
-      l_now, l_who, l_now, l_who
+      l_key, l_now, l_who, l_now, l_who
     ) returning job_id into l_id;
 
     pck_kml_log.info(c_pkg, 'ins', 'created job "' || p_document_name || '"', l_id);

@@ -20,3 +20,32 @@ authorization IST_ADMIN (
     }
 )
 
+authorization JOB_ACCESS_VALID (
+    name: JOB_ACCESS_VALID
+    type: plSqlFunctionBody
+    settings {
+        plsqlFunctionBody:
+            ```plsql
+            -- Public link gate: grants access only when the page's job id and
+            -- access_key match a row in KML_JOBS. Re-evaluated every page view.
+            declare
+              l_n   number;
+              l_job number       := to_number(v('P100_JOB_ID') default null on conversion error);
+              l_key varchar2(64)  := v('P100_ACCESS_KEY');
+            begin
+              if l_job is null or l_key is null then
+                return false;
+              end if;
+              select count(*) into l_n
+                from kml_jobs
+               where job_id = l_job
+                 and access_key = l_key;
+              return l_n > 0;
+            end;
+            ```
+    }
+    error {
+        errorMessage: Invalid or missing access key for this job.
+    }
+)
+

@@ -1,0 +1,307 @@
+page 110 (
+    name: My maps
+    alias: MY-MAPS
+    title: KMLeon - My maps
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+        warnOnUnsavedChanges: false
+    }
+    security {
+        authentication: public
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region filter (
+        name: My maps
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        advanced {
+            htmlDomId: filter
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        source {
+            htmlCode:
+                ```html
+                <!-- security-review: public landing that lists a user's jobs, filtered by
+                     user_id + user_tab. Both are unrestricted items so the page can be linked
+                     with the user identity in the URL without an APEX checksum. The Open link
+                     carries each job's access_key to the JOB_ACCESS_VALID-gated editor. This is
+                     a test/demo surface; in production scope the filter to the authenticated
+                     user and do not expose access_key to untrusted viewers. -->
+                <p class="u-textGrey">
+                  Jobs created for this user. Adjust <b>User id</b> / <b>User tab</b> to look at a
+                  different user, then open a map in the editor to draw, style and download it.
+                </p>
+                ```
+        }
+    )
+
+    pageItem P110_USER_ID (
+        type: textField
+        label {
+            label: User id
+        }
+        layout {
+            sequence: 10
+            region: @filter
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        security {
+            sessionStateProtection: unrestricted
+        }
+    )
+
+    pageItem P110_USER_TAB (
+        type: textField
+        label {
+            label: User tab
+        }
+        layout {
+            sequence: 20
+            region: @filter
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        security {
+            sessionStateProtection: unrestricted
+        }
+    )
+
+    button refresh (
+        buttonName: REFRESH
+        label: Refresh
+        layout {
+            sequence: 30
+            region: @filter
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: #DEFAULT#
+            icon: fa-refresh
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    region jobs (
+        name: Maps
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select job_id,
+                       document_name,
+                       status,
+                       output_format,
+                       asset_count,
+                       to_char(created_at, 'YYYY-MM-DD HH24:MI') as created,
+                       access_key,
+                       'Open editor' as open_link
+                  from kml_jobs
+                 where user_id  = :P110_USER_ID
+                   and user_tab = :P110_USER_TAB
+                 order by job_id desc
+                ```
+            pageItemsToSubmit: P110_USER_ID,P110_USER_TAB
+        }
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        messages {
+            whenNoDataFound: No maps for this user yet.
+        }
+
+        column JOB_ID (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Job
+            }
+            layout {
+                sequence: 10
+            }
+        )
+        column DOCUMENT_NAME (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Name
+            }
+            layout {
+                sequence: 20
+            }
+        )
+        column STATUS (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Status
+            }
+            layout {
+                sequence: 30
+            }
+        )
+        column OUTPUT_FORMAT (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Format
+            }
+            layout {
+                sequence: 40
+            }
+        )
+        column ASSET_COUNT (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Features
+            }
+            layout {
+                sequence: 50
+            }
+        )
+        column CREATED (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Created
+            }
+            layout {
+                sequence: 60
+            }
+        )
+        column ACCESS_KEY (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 65
+            }
+        )
+        column OPEN_LINK (
+            reportColumnQueryId: 8
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Open
+            }
+            layout {
+                sequence: 70
+            }
+            link {
+                target: {
+                    page: 100
+                    items: {
+                        P100_JOB_ID: #JOB_ID#
+                        P100_ACCESS_KEY: #ACCESS_KEY#
+                    }
+                }
+                linkText: <span class="t-Button t-Button--hot t-Button--small">Open editor</span>
+                linkAttributes: aria-label="Open editor"
+            }
+        )
+    )
+
+    process init-defaults (
+        name: Default user from session
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P110_USER_ID  := nvl(:P110_USER_ID, v('APP_USER'));
+                  :P110_USER_TAB := nvl(:P110_USER_TAB, 'APP_USER');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    dynamicAction da-refresh (
+        name: Refresh grid
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @refresh
+        }
+        action do-refresh (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @jobs
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+
+    dynamicAction da-filter-change (
+        name: Refresh on filter change
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P110_USER_ID,P110_USER_TAB
+        }
+        action do-refresh2 (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @jobs
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+
+)

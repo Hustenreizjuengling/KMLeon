@@ -62,6 +62,45 @@ list navigation-bar (
 list navigation-menu (
     name: Navigation Menu
 
+    entry my-maps (
+        label: My maps
+        icon {
+            imageIconCssClasses: fa-map
+        }
+        layout {
+            sequence: 10
+        }
+        isCurrent {
+            type: pages
+            pages: 110
+        }
+        link {
+            target: {
+                page: 110
+            }
+        }
+    )
+
+    entry admin (
+        label: Admin
+        icon {
+            imageIconCssClasses: fa-cogs
+        }
+        layout {
+            sequence: 20
+        }
+        link {
+            target: {
+                type: url
+                url: #
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
     entry home (
         label: Jobs
         icon {
@@ -69,11 +108,20 @@ list navigation-menu (
         }
         layout {
             sequence: 10
+            parentEntry: @admin
+        }
+        isCurrent {
+            type: pages
+            pages: 1
         }
         link {
             target: {
                 page: 1
             }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
         }
     )
 
@@ -84,6 +132,7 @@ list navigation-menu (
         }
         layout {
             sequence: 20
+            parentEntry: @admin
         }
         isCurrent {
             type: pages
@@ -94,6 +143,10 @@ list navigation-menu (
                 page: 3
             }
         }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
     )
 
     entry editor (
@@ -103,6 +156,7 @@ list navigation-menu (
         }
         layout {
             sequence: 22
+            parentEntry: @admin
         }
         isCurrent {
             type: pages
@@ -113,6 +167,10 @@ list navigation-menu (
                 page: 11
             }
         }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
     )
 
     entry query-helper (
@@ -122,6 +180,7 @@ list navigation-menu (
         }
         layout {
             sequence: 25
+            parentEntry: @admin
         }
         isCurrent {
             type: pages
@@ -132,6 +191,10 @@ list navigation-menu (
                 page: 10
             }
         }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
     )
 
     entry async (
@@ -141,6 +204,7 @@ list navigation-menu (
         }
         layout {
             sequence: 30
+            parentEntry: @admin
         }
         isCurrent {
             type: pages
@@ -151,6 +215,10 @@ list navigation-menu (
                 page: 8
             }
         }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
     )
 
     entry logs (
@@ -160,6 +228,7 @@ list navigation-menu (
         }
         layout {
             sequence: 40
+            parentEntry: @admin
         }
         isCurrent {
             type: pages
@@ -170,6 +239,10 @@ list navigation-menu (
                 page: 5
             }
         }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
     )
 
     entry settings (
@@ -179,6 +252,7 @@ list navigation-menu (
         }
         layout {
             sequence: 50
+            parentEntry: @admin
         }
         isCurrent {
             type: pages
@@ -188,6 +262,10 @@ list navigation-menu (
             target: {
                 page: 7
             }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
         }
     )
 

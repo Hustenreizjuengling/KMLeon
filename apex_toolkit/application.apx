@@ -6,7 +6,7 @@ app KMLEON (
     }
     navigation {
         homeUrl: {
-            page: 1
+            page: 110
         }
         loginUrl: {
             page: LOGIN

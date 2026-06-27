@@ -100,6 +100,10 @@ as
   function get_kml(p_job_id in number)    return clob;
   function get_kmz(p_job_id in number)    return blob;
 
+  -- The job's access_key (for building a public-editor link). Returns NULL if the
+  -- job has none (e.g. created before this feature).
+  function get_access_key(p_job_id in number) return varchar2;
+
   procedure purge_jobs(p_older_than_days in number default 30);  -- commits
 end pck_kml_job_api;
 /
@@ -294,6 +298,14 @@ as
     l_job := pck_kml_jobs_dml.get(p_job_id);
     return l_job.result_kmz;
   end get_kmz;
+
+
+  function get_access_key(p_job_id in number) return varchar2 is
+    l_job kml_jobs%rowtype;
+  begin
+    l_job := pck_kml_jobs_dml.get(p_job_id);
+    return l_job.access_key;
+  end get_access_key;
 
 
   procedure purge_jobs(p_older_than_days in number default 30) is
