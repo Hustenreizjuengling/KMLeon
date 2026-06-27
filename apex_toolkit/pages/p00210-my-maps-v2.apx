@@ -217,7 +217,10 @@ page 210 (
                   .km-modal.is-open { display: grid; }
                   /* dialog sits over a dim overlay, so it needs an opaque surface; bg + text
                      come from the same theme pair (readable fallback) to stay legible either way */
-                  .km-dialog { width: min(440px, 92vw); border-radius: var(--kml-radius); border: 1px solid var(--kml-border); background: var(--ut-component-background-color, #ffffff); color: var(--ut-component-text-color, #1b2430); box-shadow: 0 30px 70px -20px rgba(0,0,0,.6); overflow: hidden; animation: kmpop .22s ease; }
+                  /* opaque surface over the dim overlay: use the theme's component background,
+                     but inherit the live theme text colour (currentColor) so it is readable in
+                     both Vita and Vita Dark even if --ut-component-text-color is absent. */
+                  .km-dialog { width: min(440px, 92vw); border-radius: var(--kml-radius); border: 1px solid var(--kml-border); background: var(--ut-component-background-color, var(--ut-body-background-color, #ffffff)); color: currentColor; box-shadow: 0 30px 70px -20px rgba(0,0,0,.6); overflow: hidden; animation: kmpop .22s ease; }
                   .km-dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--kml-border); }
                   .km-dialog-head h3 { margin: 0; font-size: 1.05rem; }
                   .km-x { border: 0; background: transparent; color: var(--kml-muted); cursor: pointer; font-size: 1.1rem; padding: 4px 8px; border-radius: 8px; }
