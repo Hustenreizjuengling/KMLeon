@@ -192,12 +192,20 @@ as
     end if;
 
     send_mail(l_mail);                       -- your sender / APEX_MAIL (no-op by default)
+    -- free the KML attachment temp BLOB (clob_to_blob); the KMZ attachment is the
+    -- persistent result_kmz LOB, so istemporary guards against freeing that.
+    if l_mail.attachment is not null and dbms_lob.istemporary(l_mail.attachment) = 1 then
+      dbms_lob.freetemporary(l_mail.attachment);
+    end if;
     pck_kml_jobs_dml.set_notified(p_job_id);
     commit;
     pck_kml_log.info(c_pkg, 'notify',
       'notification handed to sender for ' || l_mail.recipient, p_job_id);
   exception
     when others then
+      if l_mail.attachment is not null and dbms_lob.istemporary(l_mail.attachment) = 1 then
+        dbms_lob.freetemporary(l_mail.attachment);
+      end if;
       rollback;
       -- best-effort: a notification problem must never affect the job itself
       pck_kml_log.error(c_pkg, 'notify',

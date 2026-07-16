@@ -141,6 +141,10 @@ page 110 (
         messages {
             whenNoDataFound: No maps for this user yet.
         }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: nvl(v('APP_USER'), 'nobody') not in ('nobody', 'APEX_PUBLIC_USER')
+        }
 
         column JOB_ID (
             reportColumnQueryId: 1

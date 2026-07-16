@@ -184,6 +184,19 @@ as
       return to_number(pstr(p_obj, p_key) default null on conversion error);
   end pnum;
 
+  -- Coerce a scalar (incl. a JSON boolean 'true'/'false', or 1/0) to a Y/N flag:
+  -- first char Y/T/1 -> Y, N/F/0 -> N, anything else -> p_default. Without this a
+  -- raw GeoJSON boolean would become 'T'/'F' and violate the Y/N check constraints.
+  function to_yn(p_val in varchar2, p_default in varchar2) return varchar2 is
+    c varchar2(1) := upper(substr(trim(p_val), 1, 1));
+  begin
+    return case
+             when c in ('Y', 'T', '1') then 'Y'
+             when c in ('N', 'F', '0') then 'N'
+             else p_default
+           end;
+  end to_yn;
+
 
   function add_features_geojson(p_job_id in number, p_feature_collection in clob) return pls_integer is
     l_root      json_object_t;
@@ -262,11 +275,11 @@ as
                     l_descr := to_clob(pstr(l_props, l_keys(k)));
                   end;
                 when 'FOLDER_NAME'   then l_folder       := pstr(l_props, l_keys(k));
-                when 'VISIBILITY'    then l_vis          := nvl(upper(substr(pstr(l_props, l_keys(k)), 1, 1)), 'Y');
+                when 'VISIBILITY'    then l_vis          := to_yn(pstr(l_props, l_keys(k)), 'Y');
                 when 'DISPLAY_ORDER' then l_disp         := nvl(pnum(l_props, l_keys(k)), 0);
                 when 'ALTITUDE_MODE' then l_alt          := pstr(l_props, l_keys(k));
-                when 'EXTRUDE'       then l_extr         := nvl(upper(substr(pstr(l_props, l_keys(k)), 1, 1)), 'N');
-                when 'TESSELLATE'    then l_tess         := nvl(upper(substr(pstr(l_props, l_keys(k)), 1, 1)), 'N');
+                when 'EXTRUDE'       then l_extr         := to_yn(pstr(l_props, l_keys(k)), 'N');
+                when 'TESSELLATE'    then l_tess         := to_yn(pstr(l_props, l_keys(k)), 'N');
                 when 'ICON_HREF'     then l_icon_href    := pstr(l_props, l_keys(k));
                 when 'ICON_SCALE'    then l_icon_scale   := pnum(l_props, l_keys(k));
                 when 'LABEL_COLOR'   then l_label_color  := pstr(l_props, l_keys(k));
@@ -274,8 +287,8 @@ as
                 when 'LINE_COLOR'    then l_line_color   := pstr(l_props, l_keys(k));
                 when 'LINE_WIDTH'    then l_line_width   := pnum(l_props, l_keys(k));
                 when 'POLY_COLOR'    then l_poly_color   := pstr(l_props, l_keys(k));
-                when 'POLY_FILL'     then l_poly_fill    := nvl(upper(substr(pstr(l_props, l_keys(k)), 1, 1)), 'Y');
-                when 'POLY_OUTLINE'  then l_poly_outline := nvl(upper(substr(pstr(l_props, l_keys(k)), 1, 1)), 'Y');
+                when 'POLY_FILL'     then l_poly_fill    := to_yn(pstr(l_props, l_keys(k)), 'Y');
+                when 'POLY_OUTLINE'  then l_poly_outline := to_yn(pstr(l_props, l_keys(k)), 'Y');
                 else l_ext.put(l_keys(k), l_props.get(l_keys(k)));
               end case;
             end loop;

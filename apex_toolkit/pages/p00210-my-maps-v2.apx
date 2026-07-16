@@ -486,10 +486,17 @@ page 210 (
                 -- job, on demand. APEX computes the URL + any required checksum via get_url;
                 -- the client only resolves it against the ORDS context and navigates.
                 declare
+                  l_user varchar2(255) := nvl(v('APP_USER'), 'nobody');
                   l_job number := to_number(apex_application.g_x01);
                   l_key varchar2(64);
                   l_url varchar2(4000);
                 begin
+                  -- Defense-in-depth: never hand a job's access_key to an anonymous
+                  -- session (mirrors CREATE_JOB). In production users reach this via
+                  -- SSO/APP_USER; the external deep-link flow does not use this process.
+                  if l_user in ('nobody', 'APEX_PUBLIC_USER') then
+                    raise_application_error(-20905, 'Anmeldung erforderlich.');
+                  end if;
                   select access_key into l_key from kml_jobs where job_id = l_job;
                   l_url := apex_page.get_url(
                              p_page      => 200,

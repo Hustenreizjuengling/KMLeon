@@ -62,9 +62,10 @@ as
     p_doc_name     in  varchar2 default 'My export',
     p_format       in  varchar2 default 'KMZ',
     p_inline_binds in  varchar2 default null,        -- comma-separated APEX item names
-    p_bind_mode    in  varchar2 default 'QUERY',     -- 'QUERY' = inline value via concat into source_query;
-                                                     -- 'JSON'  = inline value via concat into source_binds JSON,
-                                                     --          query keeps :NAME and engine binds at runtime
+    p_bind_mode    in  varchar2 default 'JSON',      -- 'JSON'  (default, safer) = inline value via source_binds
+                                                     --          JSON; query keeps :NAME and the engine binds it
+                                                     --          at runtime (no value concatenated into the SQL).
+                                                     -- 'QUERY' = inline value concatenated into source_query.
     p_columns      out clob,
     p_snippet      out clob,
     p_query_clob   out clob,
@@ -373,7 +374,7 @@ as
     p_doc_name     in  varchar2 default 'My export',
     p_format       in  varchar2 default 'KMZ',
     p_inline_binds in  varchar2 default null,
-    p_bind_mode    in  varchar2 default 'QUERY',
+    p_bind_mode    in  varchar2 default 'JSON',
     p_columns      out clob,
     p_snippet      out clob,
     p_query_clob   out clob,
@@ -398,6 +399,13 @@ as
 
     if p_query is null or dbms_lob.getlength(p_query) = 0 then
       p_status := 'Query is empty.';
+      return;
+    end if;
+
+    -- Safety guard: DBMS_SQL.PARSE runs DDL/DML immediately (not only on EXECUTE),
+    -- so only allow a leading SELECT/WITH to be analysed here.
+    if not regexp_like(p_query, '^[[:space:]]*(select|with)[[:space:]]', 'i') then
+      p_status := 'Only SELECT / WITH statements can be analysed here.';
       return;
     end if;
 
@@ -467,9 +475,10 @@ as
       l_inline_src := 'auto';
     end if;
 
-    -- bind mode: where do inline binds get baked in?
-    l_mode := upper(coalesce(p_bind_mode, 'QUERY'));
-    if l_mode not in ('QUERY', 'JSON') then l_mode := 'QUERY'; end if;
+    -- bind mode: where do inline binds get baked in? JSON (default) keeps values
+    -- out of the stored SQL; QUERY concatenates them in (opt-in).
+    l_mode := upper(coalesce(p_bind_mode, 'JSON'));
+    if l_mode not in ('QUERY', 'JSON') then l_mode := 'JSON'; end if;
 
     if l_engine_csv is not null then
       p_status := p_status || '; engine binds: ' || l_engine_csv;
@@ -586,7 +595,11 @@ as
 
     function num(p_n in number) return varchar2 is   -- '.' decimal, no group sep
     begin
-      return rtrim(rtrim(to_char(p_n, 'FM9999990.0999'), '0'), '.');
+      if p_n is null then return null; end if;
+      -- NLS-safe: force '.' as the decimal separator regardless of the session's
+      -- NLS_NUMERIC_CHARACTERS (a German session would otherwise emit '1,5',
+      -- invalid in both the generated PL/SQL and the KML <width>/<scale>).
+      return trim(to_char(p_n, 'TM9', 'NLS_NUMERIC_CHARACTERS=''. '''));
     end;
   begin
     --------------------------------------------------------------------- snippet

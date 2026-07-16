@@ -93,6 +93,17 @@ as
     return trim(to_char(p_value, 'TM9', 'NLS_NUMERIC_CHARACTERS=''. '''));
   end num;
 
+  -- Coerce a scalar (incl. 'true'/'false' or 1/0) to a Y/N flag: first char Y/T/1
+  -- -> Y, N/F/0 -> N, else p_default. Keeps QUERY-sourced flags valid for the Y/N
+  -- columns (MATERIALIZE) and consistent when streaming.
+  function yn(p_val in varchar2, p_default in varchar2) return varchar2 is
+    c varchar2(1) := upper(substr(trim(p_val), 1, 1));
+  begin
+    return case when c in ('Y', 'T', '1') then 'Y'
+                when c in ('N', 'F', '0') then 'N'
+                else p_default end;
+  end yn;
+
   function rgba_to_kml(p_rgb_hex in varchar2, p_alpha in number default 255) return varchar2 is
     pragma udf;   -- optimize use from SQL
     l_hex varchar2(8);
@@ -202,7 +213,7 @@ as
     p_line_color   in varchar2, p_line_width   in number,
     p_poly_color   in varchar2, p_poly_fill    in varchar2, p_poly_outline in varchar2
   ) return varchar2 is
-    l_out varchar2(4000);
+    l_out varchar2(32767);   -- fragments (esp. an escaped icon_href) can exceed 4000
   begin
     if p_icon_href is null and p_icon_scale is null
        and p_label_color is null and p_label_scale is null
@@ -486,11 +497,12 @@ as
     l_desc clob;
   begin
     app(l_kml, '<Placemark>');
-    if p_visibility = 'N' then
-      app(l_kml, '<visibility>0</visibility>');
-    end if;
+    -- KML 2.2 schema order: <name> before <visibility>.
     if p_name is not null then
       app(l_kml, '<name>' || escape_xml(p_name) || '</name>');
+    end if;
+    if p_visibility = 'N' then
+      app(l_kml, '<visibility>0</visibility>');
     end if;
     if p_description is not null and dbms_lob.getlength(p_description) > 0 then
       l_desc := replace(p_description, ']]>', ']]]]><![CDATA[>');
@@ -752,10 +764,10 @@ as
             when 'NAME'          then l_name         := as_vc(i);
             when 'DESCRIPTION'   then l_descr        := as_clob(i);
             when 'FOLDER_NAME'   then l_folder       := as_vc(i);
-            when 'VISIBILITY'    then l_vis          := nvl(upper(substr(as_vc(i), 1, 1)), 'Y');
+            when 'VISIBILITY'    then l_vis          := yn(as_vc(i), 'Y');
             when 'ALTITUDE_MODE' then l_alt          := as_vc(i);
-            when 'EXTRUDE'       then l_extr         := nvl(upper(substr(as_vc(i), 1, 1)), 'N');
-            when 'TESSELLATE'    then l_tess         := nvl(upper(substr(as_vc(i), 1, 1)), 'N');
+            when 'EXTRUDE'       then l_extr         := yn(as_vc(i), 'N');
+            when 'TESSELLATE'    then l_tess         := yn(as_vc(i), 'N');
             when 'ICON_HREF'     then l_icon_href    := as_vc(i);
             when 'ICON_SCALE'    then l_icon_scale   := as_num(i);
             when 'LABEL_COLOR'   then l_label_color  := as_vc(i);
@@ -763,8 +775,8 @@ as
             when 'LINE_COLOR'    then l_line_color   := as_vc(i);
             when 'LINE_WIDTH'    then l_line_width   := as_num(i);
             when 'POLY_COLOR'    then l_poly_color   := as_vc(i);
-            when 'POLY_FILL'     then l_poly_fill    := nvl(upper(substr(as_vc(i), 1, 1)), 'Y');
-            when 'POLY_OUTLINE'  then l_poly_outline := nvl(upper(substr(as_vc(i), 1, 1)), 'Y');
+            when 'POLY_FILL'     then l_poly_fill    := yn(as_vc(i), 'Y');
+            when 'POLY_OUTLINE'  then l_poly_outline := yn(as_vc(i), 'Y');
             when 'EXTENDED_DATA' then
               begin
                 declare
@@ -883,7 +895,13 @@ as
     l_job := pck_kml_jobs_dml.get(p_job_id);
     dbms_lob.createtemporary(l_body, true);
     render_from_assets(l_body, p_job_id, p_count);
-    return assemble(l_job, l_body);
+    return assemble(l_job, l_body);   -- assemble frees l_body on success
+  exception
+    when others then   -- render failed before assemble could free the body buffer
+      if l_body is not null and dbms_lob.istemporary(l_body) = 1 then
+        dbms_lob.freetemporary(l_body);
+      end if;
+      raise;
   end build_assets_document;
 
 
@@ -893,7 +911,13 @@ as
     reset_styles;
     dbms_lob.createtemporary(l_body, true);
     run_query(p_job, 'STREAM', l_body, p_count);
-    return assemble(p_job, l_body);
+    return assemble(p_job, l_body);   -- assemble frees l_body on success
+  exception
+    when others then   -- run_query failed before assemble could free the body buffer
+      if l_body is not null and dbms_lob.istemporary(l_body) = 1 then
+        dbms_lob.freetemporary(l_body);
+      end if;
+      raise;
   end build_query_document;
 
 
@@ -918,14 +942,21 @@ as
     l_mcount number;
     l_void   clob;
   begin
-    pck_kml_jobs_dml.set_running(p_job_id);
+    -- Atomically claim the job (-> RUNNING) unless another session already has it
+    -- RUNNING; prevents concurrent double-processing. A deliberate re-run of a
+    -- COMPLETED/FAILED/CANCELLED job is still allowed (its status is not RUNNING).
+    if pck_kml_jobs_dml.claim(p_job_id) = 0 then
+      l_job := pck_kml_jobs_dml.get(p_job_id);   -- existence check (raises -20813 if not found)
+      pck_kml_log.warn(c_pkg, 'run_job', 'job already RUNNING; duplicate run skipped', p_job_id);
+      return;
+    end if;
     l_job := pck_kml_jobs_dml.get(p_job_id);
 
     if upper(l_job.source_type) = 'QUERY' and upper(l_job.source_mode) = 'MATERIALIZE' then
       pck_kml_job_assets_dml.del_by_job(p_job_id);          -- idempotent re-run
       dbms_lob.createtemporary(l_void, true);                -- unused sink, but pass a valid LOB
       run_query(l_job, 'MATERIALIZE', l_void, l_mcount);     -- writes assets
-      if dbms_lob.istemporary(l_void) = 1 then               -- free the sink (not auto-freed)
+      if l_void is not null and dbms_lob.istemporary(l_void) = 1 then  -- free the sink (not auto-freed)
         dbms_lob.freetemporary(l_void);
       end if;
       l_kml := build_assets_document(p_job_id, l_count);     -- render the materialized assets
@@ -945,6 +976,16 @@ as
     end if;
 
     commit;
+
+    -- free the result temp LOBs now they are persisted on the job row. Matters in
+    -- long-lived sessions (the dispatcher / a one-shot background run) where the
+    -- temporary tablespace would otherwise grow by one result per job.
+    if l_kml is not null and dbms_lob.istemporary(l_kml) = 1 then
+      dbms_lob.freetemporary(l_kml);
+    end if;
+    if l_kmz is not null and dbms_lob.istemporary(l_kmz) = 1 then
+      dbms_lob.freetemporary(l_kmz);
+    end if;
 
     -- best-effort: free the input assets after a successful build (configurable,
     -- default ON). Separate transaction so a cleanup error never affects the
@@ -967,8 +1008,15 @@ as
     end;
   exception
     when others then
-      if dbms_lob.istemporary(l_void) = 1 then   -- free the MATERIALIZE sink if run_query raised
+      -- free any temp LOBs before failing (MATERIALIZE sink + partial result)
+      if l_void is not null and dbms_lob.istemporary(l_void) = 1 then
         dbms_lob.freetemporary(l_void);
+      end if;
+      if l_kml is not null and dbms_lob.istemporary(l_kml) = 1 then
+        dbms_lob.freetemporary(l_kml);
+      end if;
+      if l_kmz is not null and dbms_lob.istemporary(l_kmz) = 1 then
+        dbms_lob.freetemporary(l_kmz);
       end if;
       rollback;
       pck_kml_jobs_dml.set_failed(p_job_id,

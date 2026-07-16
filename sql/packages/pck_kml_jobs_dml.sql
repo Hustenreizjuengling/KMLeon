@@ -35,6 +35,14 @@ as
 
   procedure set_status(p_job_id in number, p_status in varchar2);
   procedure set_running(p_job_id in number);
+
+  -- Atomically claim a job for execution: flip to RUNNING unless it is already
+  -- RUNNING (in another session). Returns rows affected: 1 = claimed by us,
+  -- 0 = not found OR already RUNNING elsewhere. The row lock serializes concurrent
+  -- claimers so the same job is not processed twice at once. A deliberate re-run of
+  -- a COMPLETED/FAILED/CANCELLED job is still allowed (its status is not RUNNING).
+  function claim(p_job_id in number) return pls_integer;
+
   procedure set_notified(p_job_id in number);   -- stamp notified_at
 
   procedure set_completed(
@@ -71,9 +79,9 @@ as
 
   function gen_access_key return varchar2 is
   begin
-    -- 64 hex chars from two GUIDs. Unguessable enough for a link token; swap in
-    -- dbms_crypto.randombytes(32) if you need cryptographic-grade entropy.
-    return lower(rawtohex(sys_guid()) || rawtohex(sys_guid()));
+    -- Cryptographically strong link token: 32 random bytes -> 64 lowercase hex
+    -- chars. Requires EXECUTE on SYS.DBMS_CRYPTO (see install.sql header).
+    return lower(rawtohex(dbms_crypto.randombytes(32)));
   end gen_access_key;
 
 
@@ -145,6 +153,25 @@ as
      where job_id = p_job_id;
     pck_kml_log.info(c_pkg, 'set_running', 'job started', p_job_id);
   end set_running;
+
+
+  function claim(p_job_id in number) return pls_integer is
+    l_rows pls_integer;
+  begin
+    update kml_jobs
+       set status        = 'RUNNING',
+           started_at    = systimestamp,
+           error_message = null,
+           updated_at    = systimestamp,
+           updated_by    = user
+     where job_id = p_job_id
+       and status <> 'RUNNING';
+    l_rows := sql%rowcount;   -- capture before any logging (autonomous log INSERT resets sql%rowcount)
+    if l_rows > 0 then
+      pck_kml_log.info(c_pkg, 'claim', 'job claimed (-> RUNNING)', p_job_id);
+    end if;
+    return l_rows;
+  end claim;
 
 
   procedure set_notified(p_job_id in number) is

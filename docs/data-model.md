@@ -124,6 +124,7 @@ exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
 | `CLEANUP_INTERVAL` | SETTING | STRING | `FREQ=DAILY;BYHOUR=3` | DBMS_SCHEDULER calendar for how often cleanup runs. |
 | `CLEANUP_RETENTION_DAYS` | SETTING | NUMBER | `30` | Only jobs finished older than this are eligible. |
 | `CLEANUP_STATUSES` | SETTING | STRING | `COMPLETED,CANCELLED` | Terminal statuses the cleanup deletes. |
+| `CLEANUP_LOG_RETENTION_DAYS` | SETTING | NUMBER | `90` | Delete `KML_LOG` rows older than this during cleanup (`0`/absent = keep all). |
 | `METRIC_LAST_JOB_CREATED_AT` | METRIC | TIMESTAMP | — | Stamped by `PCK_KML_JOBS_DML.ins`. |
 | `METRIC_LAST_JOB_COMPLETED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_completed`. |
 | `METRIC_LAST_JOB_FAILED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_failed`. |
@@ -140,8 +141,9 @@ write a metric never breaks the surrounding job transaction.
 `run_cleanup(p_force)` reads the `CLEANUP_*` settings and purges old jobs (assets cascade)
 via `PCK_KML_JOBS_DML.purge(statuses, days)`. Only **terminal** statuses (`COMPLETED` /
 `FAILED` / `CANCELLED`) are ever deleted regardless of `CLEANUP_STATUSES`, and only jobs
-whose `finished_at` is older than `CLEANUP_RETENTION_DAYS`. It stamps `METRIC_LAST_CLEANUP_*`
-and commits.
+whose `finished_at` is older than `CLEANUP_RETENTION_DAYS`. It also trims `KML_LOG` via
+`PCK_KML_LOG.purge(CLEANUP_LOG_RETENTION_DAYS)` (default 90 days; `0`/absent keeps all rows).
+It stamps `METRIC_LAST_CLEANUP_*` and commits.
 
 `apply_schedule` (re)creates or drops the `KMLEON_MAINTENANCE` `DBMS_SCHEDULER` job from
 the current config (enabled + interval). Set it up / re-apply after changing settings with

@@ -39,14 +39,4 @@ authorization JOB_ACCESS_VALID (
     }
 )
 
-authorization administration-rights (
-    name: Administration Rights
-    type: plSqlFunctionBody
-    settings {
-        plsqlFunctionBody: return true;
-    }
-    error {
-        errorMessage: Insufficient privileges, user is not an Administrator
-    }
-)
 

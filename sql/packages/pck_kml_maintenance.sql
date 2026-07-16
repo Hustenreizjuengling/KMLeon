@@ -32,7 +32,9 @@ as
     l_enabled   boolean      := pck_kml_config_dml.get_boolean('CLEANUP_ENABLED', false);
     l_statuses  varchar2(200) := pck_kml_config_dml.get_string('CLEANUP_STATUSES', 'COMPLETED,CANCELLED');
     l_retention number       := pck_kml_config_dml.get_number('CLEANUP_RETENTION_DAYS', 30);
+    l_log_ret   number       := pck_kml_config_dml.get_number('CLEANUP_LOG_RETENTION_DAYS', 90);
     l_deleted   pls_integer;
+    l_log_del   pls_integer;
   begin
     if not l_enabled and not p_force then
       pck_kml_log.info(c_pkg, 'run_cleanup', 'skipped (CLEANUP_ENABLED = N)');
@@ -40,6 +42,7 @@ as
     end if;
 
     l_deleted := pck_kml_jobs_dml.purge(l_statuses, l_retention);
+    l_log_del := pck_kml_log.purge(l_log_ret);   -- housekeeping for KML_LOG (0 = disabled)
 
     -- best-effort metrics: a metric write must not roll back the purge
     begin
@@ -50,7 +53,8 @@ as
     end;
     commit;
 
-    pck_kml_log.info(c_pkg, 'run_cleanup', 'done; deleted=' || l_deleted);
+    pck_kml_log.info(c_pkg, 'run_cleanup',
+      'done; jobs_deleted=' || l_deleted || ' log_deleted=' || l_log_del);
     return l_deleted;
   exception
     when others then

@@ -200,6 +200,8 @@ as
          'Only jobs finished more than this many days ago are eligible for cleanup.');
     seed('CLEANUP_STATUSES',       'SETTING', 'STRING',  'COMPLETED,CANCELLED', null, null,
          'Comma-separated terminal statuses the cleanup job deletes (terminal only).');
+    seed('CLEANUP_LOG_RETENTION_DAYS', 'SETTING', 'NUMBER', null, 90, null,
+         'Delete KML_LOG rows older than this many days during cleanup (0/absent = keep all).');
 
     --- METRICs (auto-maintained; start NULL) -----------------------------------
     seed('METRIC_LAST_JOB_CREATED_AT',   'METRIC', 'TIMESTAMP', null, null, null, 'When a job was last created.');

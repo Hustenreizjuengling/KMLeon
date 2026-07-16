@@ -32,6 +32,12 @@ as
   procedure warn (p_package in varchar2, p_routine in varchar2, p_message in clob, p_job_id in number default null);
   procedure info (p_package in varchar2, p_routine in varchar2, p_message in clob, p_job_id in number default null);
   procedure debug(p_package in varchar2, p_routine in varchar2, p_message in clob, p_job_id in number default null);
+
+  -- Housekeeping: delete log rows older than p_older_than_days (null or <= 0 = no-op,
+  -- retention disabled). Returns rows deleted. Does NOT commit (the caller owns the
+  -- transaction). The retention value is passed in (by PCK_KML_MAINTENANCE) so this
+  -- package keeps depending on nothing -- no cycle with PCK_KML_CONFIG_DML.
+  function purge(p_older_than_days in number) return pls_integer;
 end pck_kml_log;
 /
 
@@ -99,5 +105,16 @@ as
 
   procedure debug(p_package in varchar2, p_routine in varchar2, p_message in clob, p_job_id in number default null) is
   begin log(c_debug, p_package, p_routine, p_message, p_job_id); end;
+
+  function purge(p_older_than_days in number) return pls_integer is
+    l_rows pls_integer;
+  begin
+    if p_older_than_days is null or p_older_than_days <= 0 then
+      return 0;   -- retention disabled
+    end if;
+    delete from kml_log
+     where created_at < systimestamp - numtodsinterval(p_older_than_days, 'DAY');
+    return sql%rowcount;
+  end purge;
 end pck_kml_log;
 /

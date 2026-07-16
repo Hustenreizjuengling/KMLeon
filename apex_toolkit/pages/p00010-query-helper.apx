@@ -151,14 +151,14 @@ page 10 (
             type: sqlQuery
             sqlQuery:
                 ```sql
-                select 'Inline in source_query (literal)' as d, 'QUERY' as r from dual
-                union all
                 select 'Inline in source_binds (JSON)'    as d, 'JSON'  as r from dual
+                union all
+                select 'Inline in source_query (literal)' as d, 'QUERY' as r from dual
                 ```
             displayNullValue: false
         }
         help {
-            helpText: How inline binds are baked in. QUERY (default) -> the value is concatenated INTO source_query and the engine sees a literal. JSON -> the value is concatenated into source_binds JSON; source_query keeps :NAME and the engine binds it at runtime (better plan-cache reuse, cleaner stored SQL).
+            helpText: How inline binds are baked in. JSON (default, safer) -> the value goes into source_binds JSON; source_query keeps :NAME and the engine binds it at runtime (no value concatenated into the SQL; better plan-cache reuse, cleaner stored SQL). QUERY -> the value is concatenated INTO source_query and the engine sees a literal (opt-in).
         }
     )
 
@@ -350,7 +350,7 @@ page 10 (
                 begin
                   :P10_DOC_NAME  := nvl(:P10_DOC_NAME, 'My export');
                   :P10_FORMAT    := nvl(:P10_FORMAT, 'KMZ');
-                  :P10_BIND_MODE := nvl(:P10_BIND_MODE, 'QUERY');
+                  :P10_BIND_MODE := nvl(:P10_BIND_MODE, 'JSON');
                 end;
                 ```
         }

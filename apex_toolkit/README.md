@@ -187,11 +187,13 @@ syntax + names, not bind values.)
 
 | Mode | `source_query` | `source_binds` |
 |---|---|---|
-| **`QUERY`** (default) | `q'~...~' || :P200_ID || q'~...~'` (literal) | `q'~{"region":"DE"}~'` (unchanged) |
-| **`JSON`** | `q'~... where id = :P200_ID ...~'` (intact) | `'{"region":"DE","P200_ID":"' || :P200_ID || '"}'` |
+| **`JSON`** (default, safer) | `q'~... where id = :P200_ID ...~'` (intact) | `'{"region":"DE","P200_ID":"' || :P200_ID || '"}'` |
+| **`QUERY`** (opt-in) | `q'~...~' || :P200_ID || q'~...~'` (literal) | `q'~{"region":"DE"}~'` (unchanged) |
 
-`QUERY` is simpler (value visible on the job row); `JSON` keeps the stored SQL clean and
-benefits from Oracle's plan cache because the engine binds the value at run time.
+`JSON` (the default) keeps the stored SQL clean, benefits from Oracle's plan cache because
+the engine binds the value at run time, and never concatenates a caller value into the SQL
+text. `QUERY` is simpler (value visible on the job row) but bakes the value in literally —
+only use it for trusted, non-user-controlled values.
 Inline values are wrapped as JSON strings; Oracle converts to NUMBER on bind when the
 target column type requires it.
 

@@ -15,6 +15,10 @@
 --
 -- This does NOT touch existing tables or the scheduler jobs. To (re)apply the
 -- cleanup schedule afterwards, run:  @scheduler/020_maintenance.sql
+--
+-- NOTE: PCK_KML_JOBS_DML now generates the access_key via DBMS_CRYPTO. If the
+-- package compiles INVALID after this update, grant the dependency:
+--   grant execute on sys.dbms_crypto to <schema>;   then re-run this script.
 --------------------------------------------------------------------------------
 
 set define off
