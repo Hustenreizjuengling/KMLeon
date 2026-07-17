@@ -26,6 +26,9 @@ as
   procedure set_timestamp(p_key in varchar2, p_value in timestamp, p_category in varchar2 default 'SETTING', p_description in varchar2 default null);
   procedure set_boolean  (p_key in varchar2, p_value in boolean,   p_category in varchar2 default 'SETTING', p_description in varchar2 default null);
 
+  --- delete one key (obsolete/test keys; no-op when absent) -------------------
+  procedure del(p_key in varchar2);
+
   --- metric helpers (best-effort: never raise to the caller) ------------------
   procedure touch_metric(p_key in varchar2);          -- stamp value_timestamp = systimestamp
   procedure bump_metric (p_key in varchar2, p_by in number default 1);  -- increment value_number
@@ -108,11 +111,11 @@ as
     select * into p_row from kml_config where config_key = p_key;
     p_found := true;
     if p_row.data_type <> p_expected
-       and not (p_expected = 'STRING' and p_row.data_type = 'BOOLEAN')   -- BOOLEAN lives in value_string
+       and p_expected || '/' || p_row.data_type not in ('STRING/BOOLEAN', 'BOOLEAN/STRING')   -- both live in value_string
     then
       pck_kml_log.warn(c_pkg, p_getter,
-        'key ' || p_key || ' is ' || p_row.data_type || ', read as ' || p_expected
-        || ' -- returning the default');
+        'key ' || p_key || ' is typed ' || p_row.data_type || ' but was read as '
+        || p_expected || ' -- check the caller (the typed column is likely NULL)');
     end if;
   exception
     when no_data_found then
@@ -194,6 +197,17 @@ as
     upsert(p_key, p_category, 'BOOLEAN', case when p_value then 'Y' else 'N' end, null, null, p_description);
     pck_kml_log.debug(c_pkg, 'set_boolean', p_key || ' = ' || case when p_value then 'Y' else 'N' end);
   end set_boolean;
+
+
+  procedure del(p_key in varchar2) is
+  begin
+    delete from kml_config where config_key = p_key;
+    if sql%rowcount = 0 then   -- capture before logging (autonomous INSERT resets sql%rowcount)
+      pck_kml_log.debug(c_pkg, 'del', 'key ' || p_key || ' not found; nothing deleted');
+    else
+      pck_kml_log.debug(c_pkg, 'del', 'deleted key ' || p_key);
+    end if;
+  end del;
 
 
   procedure touch_metric(p_key in varchar2) is

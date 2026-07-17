@@ -45,12 +45,32 @@ begin
   dbms_output.put_line('kml length : ' || nvl(dbms_lob.getlength(l_kml), 0) || ' (expect > 0)');
   dbms_output.put_line('assets kept: ' || l_n || ' (expect 1 - build_kml must not clean up)');
   dbms_output.put_line('job status : ' || l_status || ' (expect DRAFT - never submitted)');
+  if l_n != 1 then
+    raise_application_error(-20999, 'public smoke FAILED: build_kml deleted/missed assets (count=' || l_n || ')');
+  end if;
 
   --- access lookup the auth scheme performs --------------------------------
   select count(*) into l_n from kml_jobs where job_id = l_job1 and access_key = l_key1;
   dbms_output.put_line('auth match : ' || l_n || ' (expect 1)');
+  if l_n != 1 then
+    raise_application_error(-20999, 'public smoke FAILED: auth lookup did not match');
+  end if;
   select count(*) into l_n from kml_jobs where job_id = l_job1 and access_key = 'wrong';
   dbms_output.put_line('bad key    : ' || l_n || ' (expect 0)');
+  if l_n != 0 then
+    raise_application_error(-20999, 'public smoke FAILED: wrong key matched');
+  end if;
+
+  --- assertions for the earlier prints ---------------------------------------
+  if length(l_key1) != 64 or l_key1 = l_key2 or not regexp_like(l_key1, '^[0-9a-f]{64}$') then
+    raise_application_error(-20999, 'public smoke FAILED: access_key format/uniqueness');
+  end if;
+  if nvl(dbms_lob.getlength(l_kml), 0) = 0 then
+    raise_application_error(-20999, 'public smoke FAILED: empty on-the-fly KML');
+  end if;
+  if l_status != 'DRAFT' then
+    raise_application_error(-20999, 'public smoke FAILED: build_kml changed the status to ' || l_status);
+  end if;
 
   --- clean up the smoke jobs ------------------------------------------------
   pck_kml_jobs_dml.del(l_job1);

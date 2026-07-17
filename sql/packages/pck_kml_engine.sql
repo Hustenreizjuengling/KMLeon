@@ -906,6 +906,7 @@ as
     appc(l_kml, p_body);
     close_document(l_kml);
     dbms_lob.freetemporary(p_body);
+    p_body := null;   -- so callers' error handlers can never double-free it
     return l_kml;
   end assemble;
 

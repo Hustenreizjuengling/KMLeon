@@ -72,6 +72,12 @@ page 9 (
                     sys.wpg_docload.download_file(l_blob);
                   end if;
 
+                  -- download_file buffered the content; free the temp LOB before
+                  -- ending the request (pooled sessions accumulate them otherwise)
+                  if l_blob is not null and dbms_lob.istemporary(l_blob) = 1 then
+                    dbms_lob.freetemporary(l_blob);
+                  end if;
+
                   apex_application.stop_apex_engine;
                 exception
                   when no_data_found then

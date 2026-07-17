@@ -46,9 +46,24 @@ begin
   pck_kml_maintenance.apply_schedule;
   dbms_output.put_line('apply_sched : ok');
 
-  --- clean up the smoke keys (test teardown may touch the table directly) -----
-  delete from kml_config where config_key in ('SMOKE_STR','SMOKE_NUM','SMOKE_BOOL','SMOKE_METRIC_TS');
+  --- assertions: fail hard so scripted runs detect regressions ---------------
+  if l_str != 'hello' or l_num != 42
+     or not pck_kml_config_dml.get_boolean('SMOKE_BOOL')
+     or nvl(pck_kml_config_dml.get_string('NOPE', '<default>'), 'x') != '<default>'
+     or l_ts is null
+     or l_deleted != 0 then
+    raise_application_error(-20999, 'config smoke FAILED (see output above)');
+  end if;
+
+  --- clean up the smoke keys via the DML package (no direct table DML) --------
+  pck_kml_config_dml.del('SMOKE_STR');
+  pck_kml_config_dml.del('SMOKE_NUM');
+  pck_kml_config_dml.del('SMOKE_BOOL');
+  pck_kml_config_dml.del('SMOKE_METRIC_TS');
   commit;
+  if pck_kml_config_dml.get_string('SMOKE_STR', '<gone>') != '<gone>' then
+    raise_application_error(-20999, 'config smoke FAILED: del did not remove the key');
+  end if;
 
   dbms_output.put_line('--------------------------------------------------');
   dbms_output.put_line('config smoke test OK');
