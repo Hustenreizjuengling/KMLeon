@@ -72,5 +72,23 @@ begin
   dbms_output.put_line('kml length  : ' || nvl(dbms_lob.getlength(l_kml), 0));
   dbms_output.put_line('--------------------------------------------------');
   dbms_output.put_line(dbms_lob.substr(l_kml, 3900, 1));
+
+  -- assertions: fail hard so scripted runs detect regressions
+  if pck_kml_job_api.get_status(l_job) != 'COMPLETED' then
+    raise_application_error(-20999, 'smoke_test FAILED: status ' || pck_kml_job_api.get_status(l_job));
+  end if;
+  if nvl(dbms_lob.getlength(l_kml), 0) = 0 then
+    raise_application_error(-20999, 'smoke_test FAILED: empty KML');
+  end if;
+  if instr(l_kml, '<Folder><name>Germany</name>') = 0 then
+    raise_application_error(-20999, 'smoke_test FAILED: nested folder missing');
+  end if;
+  if instr(l_kml, '<styleUrl>#ks') = 0 then
+    raise_application_error(-20999, 'smoke_test FAILED: shared styles missing');
+  end if;
+
+  pck_kml_jobs_dml.del(l_job);   -- cleanup
+  commit;
+  dbms_output.put_line('smoke test OK (job cleaned up)');
 end;
 /

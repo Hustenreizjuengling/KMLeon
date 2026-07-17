@@ -12,6 +12,10 @@
 -- Recommended (run as SYS):  grant execute on sys.dbms_crypto to <schema>;
 -- Re-running on an existing install: @uninstall.sql first
 -- (table DDL is not CREATE OR REPLACE).
+--
+-- The script runs with "whenever sqlerror continue": an early failure does NOT
+-- stop it. The install only counts as successful when the closing object-status
+-- query reports every object VALID.
 --------------------------------------------------------------------------------
 
 set define off

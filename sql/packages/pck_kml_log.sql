@@ -18,6 +18,9 @@ as
   c_debug constant varchar2(10) := 'DEBUG';
 
   -- Only messages at or above this severity are persisted (ERROR=1 .. DEBUG=4).
+  -- Default: the KML_CONFIG key LOG_THRESHOLD (read lazily once per session via
+  -- dynamic SQL -- no compile-time dependency), else INFO. Calling set_threshold
+  -- explicitly overrides the config for this session.
   procedure set_threshold(p_level in varchar2);
 
   procedure log(
@@ -44,6 +47,7 @@ end pck_kml_log;
 create or replace package body pck_kml_log
 as
   g_threshold pls_integer := 3;   -- default: INFO
+  g_loaded    boolean     := false;   -- config threshold read for this session?
 
   function severity(p_level in varchar2) return pls_integer is
   begin
@@ -59,7 +63,26 @@ as
   procedure set_threshold(p_level in varchar2) is
   begin
     g_threshold := severity(p_level);
+    g_loaded    := true;   -- explicit call wins over the config default
   end set_threshold;
+
+  -- Lazily pick up KML_CONFIG.LOG_THRESHOLD once per session. Dynamic SQL keeps
+  -- this package free of a compile-time dependency on PCK_KML_CONFIG_DML (which
+  -- installs after it); before the config package exists this quietly no-ops.
+  procedure load_threshold is
+    l_level varchar2(10);
+  begin
+    g_loaded := true;   -- set FIRST: a log call from inside get_string must not recurse here
+    execute immediate
+      'begin :l := pck_kml_config_dml.get_string(''LOG_THRESHOLD''); end;'
+      using out l_level;
+    if l_level is not null then
+      g_threshold := severity(l_level);
+    end if;
+  exception
+    when others then
+      null;   -- config not installed / not readable: keep the default
+  end load_threshold;
 
   -- The single physical writer. Autonomous so logs survive caller rollback.
   procedure write_log(
@@ -70,10 +93,14 @@ as
     p_job_id  in number
   ) is
     pragma autonomous_transaction;
+    -- normalize unknown levels to INFO so the check constraint can never make a
+    -- message vanish silently (severity() already treats unknown as INFO).
+    l_level varchar2(10) := case when upper(p_level) in (c_error, c_warn, c_info, c_debug)
+                                 then upper(p_level) else c_info end;
   begin
     insert into kml_log (log_level, package_name, routine_name, job_id, message,
                          created_at, created_by, updated_at, updated_by)
-    values (upper(p_level), p_package, p_routine, p_job_id, p_message,
+    values (l_level, p_package, p_routine, p_job_id, p_message,
             systimestamp, user, systimestamp, user);
     commit;
   exception
@@ -89,6 +116,9 @@ as
     p_job_id  in number default null
   ) is
   begin
+    if not g_loaded then
+      load_threshold;
+    end if;
     if severity(p_level) <= g_threshold then
       write_log(p_level, p_package, p_routine, p_message, p_job_id);
     end if;

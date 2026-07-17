@@ -75,6 +75,16 @@ begin
 end;
 /
 
+prompt -- backfill access_key for jobs that predate the column (no-op when none)
+declare
+  l_n pls_integer;
+begin
+  l_n := pck_kml_jobs_dml.backfill_access_keys;
+  commit;
+  dbms_output.put_line('access_key backfilled for ' || l_n || ' job(s)');
+end;
+/
+
 prompt
 prompt -- Object status (anything not VALID needs attention):
 column object_name format a28

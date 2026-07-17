@@ -24,7 +24,8 @@ as
   c_pkg constant varchar2(30) := 'PCK_KML_NOTIFY';
 
   -- Results larger than this are emailed without the attachment (a note is added
-  -- to the body instead). Tune to your mail system's limits.
+  -- to the body instead). Fallback when the KML_CONFIG key NOTIFY_MAX_ATTACH_BYTES
+  -- is absent; tune either to your mail system's limits.
   gc_max_attach_bytes constant number := 10 * 1024 * 1024;   -- 10 MB
 
   -- A fully prepared message. recipient/attachment may be NULL.
@@ -157,12 +158,20 @@ as
     -- non-AL32UTF8 database that under-estimates the UTF-8 byte size slightly.
     l_fmt  := upper(l_job.output_format);
     l_size := nvl(l_job.result_size_bytes, 0);
-    l_mail.filename  := nvl(l_job.output_filename, 'kmleon_' || p_job_id)
-                     || case when l_fmt = 'KMZ' then '.kmz' else '.kml' end;
+    declare
+      l_ext varchar2(4) := case when l_fmt = 'KMZ' then '.kmz' else '.kml' end;
+      l_fn  varchar2(260) := nvl(l_job.output_filename, 'kmleon_' || p_job_id);
+    begin
+      -- append the extension only when the caller-supplied name lacks it
+      l_mail.filename := l_fn || case when lower(l_fn) like '%' || l_ext then null else l_ext end;
+    end;
     l_mail.mime_type := case when l_fmt = 'KMZ' then 'application/vnd.google-earth.kmz'
                              else 'application/vnd.google-earth.kml+xml' end;
 
-    if l_size > 0 and l_size <= gc_max_attach_bytes then
+    if l_size > 0
+       and l_size <= nvl(pck_kml_config_dml.get_number('NOTIFY_MAX_ATTACH_BYTES'),
+                         gc_max_attach_bytes)
+    then
       l_mail.attachment := case when l_fmt = 'KMZ' then l_job.result_kmz
                                 else clob_to_blob(l_job.result_kml) end;
       l_attached := l_mail.attachment is not null;

@@ -649,7 +649,7 @@ as
     end if;
     if p_altitude_mode is not null then
       p_snippet := p_snippet
-              || '         p_altitude_mode    => ''' || p_altitude_mode || ''','       || chr(10);
+              || '         p_altitude_mode    => ''' || replace(p_altitude_mode, '''', '''''') || ''','  || chr(10);
     end if;
     if nvl(p_extrude,'N') = 'Y' then
       p_snippet := p_snippet || '         p_extrude          => ''Y'','              || chr(10);
@@ -699,7 +699,7 @@ as
         p_kml_style := p_kml_style || '<scale>' || num(p_icon_scale) || '</scale>';
       end if;
       if p_icon_href is not null then
-        p_kml_style := p_kml_style || '<Icon><href>' || p_icon_href || '</href></Icon>';
+        p_kml_style := p_kml_style || '<Icon><href>' || pck_kml_engine.escape_xml(p_icon_href) || '</href></Icon>';
       end if;
       p_kml_style := p_kml_style || '</IconStyle>' || chr(10);
     end if;

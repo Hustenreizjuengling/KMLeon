@@ -40,6 +40,13 @@ begin
   dbms_output.put_line('Part1 status : ' || pck_kml_job_api.get_status(l_job)
                        || '  features=' || l_n
                        || '  kml_len=' || nvl(dbms_lob.getlength(l_kml), 0));
+  if pck_kml_job_api.get_status(l_job) != 'COMPLETED'
+     or l_n != 2
+     or nvl(dbms_lob.getlength(l_kml), 0) = 0 then
+    raise_application_error(-20999, 'geojson smoke FAILED (part 1)');
+  end if;
+  pck_kml_jobs_dml.del(l_job);   -- cleanup part 1
+  commit;
 
   ----------------------------------------------------------------- Part 2
   l_job := pck_kml_job_api.create_job_from_query(
@@ -54,9 +61,16 @@ begin
 
   pck_kml_job_api.run_now(l_job);
   dbms_output.put_line('Part2 status : ' || pck_kml_job_api.get_status(l_job));
-  -- assets were persisted by MATERIALIZE:
+  -- assets were persisted by MATERIALIZE (0 when DELETE_ASSETS_AFTER_SUCCESS=Y
+  -- cleaned them after the successful build -- both are valid outcomes):
   for r in (select count(*) c from kml_job_assets where job_id = l_job) loop
     dbms_output.put_line('Part2 materialized assets = ' || r.c);
   end loop;
+  if pck_kml_job_api.get_status(l_job) != 'COMPLETED' then
+    raise_application_error(-20999, 'geojson smoke FAILED (part 2)');
+  end if;
+  pck_kml_jobs_dml.del(l_job);   -- cleanup part 2
+  commit;
+  dbms_output.put_line('geojson smoke test OK (jobs cleaned up)');
 end;
 /

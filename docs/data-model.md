@@ -51,7 +51,7 @@ One row per map feature. `job_id` → `KML_JOBS` with `ON DELETE CASCADE`.
 | `asset_id` | NUMBER (identity, PK) | |
 | `job_id` | NUMBER (FK) | |
 | `folder_name` | VARCHAR2(1000) | `<Folder>` path; `/` nests (e.g. `Europe/Germany`). `NULL` = under `<Document>`. |
-| `display_order` | NUMBER | Render order within a folder (default 0). |
+| `display_order` | NUMBER | Render order **within** a folder (default 0). Folders themselves render alphabetically by path (NULL-folder features first); folder order is not configurable. |
 | `name` | VARCHAR2(400) | `<Placemark><name>`. |
 | `description` | CLOB | `<description>`; HTML allowed, CDATA-wrapped. |
 | `extended_data` | CLOB | JSON object `{"k":"v",...}` → `<ExtendedData>` (balloon). |
@@ -120,6 +120,8 @@ exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
 | Key | Cat. | Type | Default | Purpose |
 |---|---|---|---|---|
 | `DELETE_ASSETS_AFTER_SUCCESS` | SETTING | BOOLEAN | `Y` | Delete a job's assets after a successful build. |
+| `LOG_THRESHOLD` | SETTING | STRING | `INFO` | Minimum severity `PCK_KML_LOG` persists (`ERROR`/`WARN`/`INFO`/`DEBUG`); read once per session. |
+| `NOTIFY_MAX_ATTACH_BYTES` | SETTING | NUMBER | `10485760` | Results larger than this are e-mailed without the attachment. |
 | `CLEANUP_ENABLED` | SETTING | BOOLEAN | `N` | Master switch for the scheduled cleanup job. |
 | `CLEANUP_INTERVAL` | SETTING | STRING | `FREQ=DAILY;BYHOUR=3` | DBMS_SCHEDULER calendar for how often cleanup runs. |
 | `CLEANUP_RETENTION_DAYS` | SETTING | NUMBER | `30` | Only jobs finished older than this are eligible. |

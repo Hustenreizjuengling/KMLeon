@@ -45,9 +45,12 @@ as
   -- POLY_OUTLINE; case-insensitive). Returns the number of features inserted.
   function add_features_geojson(p_job_id in number, p_feature_collection in clob) return pls_integer;
 
-  -- Full-overwrite update of one asset's style + metadata. Style/metadata columns
-  -- are set to the passed values (NULL clears them). Geometry is replaced only when
-  -- a geometry is supplied (SDO or non-empty GeoJSON); otherwise it is left as-is.
+  -- Update one asset. Semantics per column group:
+  --   * style/metadata (name, description, extended_data, folder_name, colors,
+  --     icon, altitude_mode): set to the passed values -- NULL clears them.
+  --   * geometry: replaced only when supplied (SDO or non-empty GeoJSON).
+  --   * display_order: kept when NULL is passed.
+  --   * extrude/tessellate/visibility: NULL falls back to N/N/Y (never cleared).
   procedure upd(
     p_asset_id         in number,
     p_geometry_sdo     in sdo_geometry default null,
@@ -267,26 +270,26 @@ as
             l_keys := l_props.get_keys;
             for k in 1 .. l_keys.count loop
               case prop_role(l_keys(k))
-                when 'NAME'          then l_name         := pstr(l_props, l_keys(k));
+                when 'NAME'          then l_name         := substr(pstr(l_props, l_keys(k)), 1, 400);
                 when 'DESCRIPTION'   then
                   begin
                     l_descr := l_props.get_clob(l_keys(k));         -- full CLOB, no 32k truncation
                   exception when others then
                     l_descr := to_clob(pstr(l_props, l_keys(k)));
                   end;
-                when 'FOLDER_NAME'   then l_folder       := pstr(l_props, l_keys(k));
+                when 'FOLDER_NAME'   then l_folder       := substr(pstr(l_props, l_keys(k)), 1, 1000);
                 when 'VISIBILITY'    then l_vis          := to_yn(pstr(l_props, l_keys(k)), 'Y');
                 when 'DISPLAY_ORDER' then l_disp         := nvl(pnum(l_props, l_keys(k)), 0);
-                when 'ALTITUDE_MODE' then l_alt          := pstr(l_props, l_keys(k));
+                when 'ALTITUDE_MODE' then l_alt          := substr(pstr(l_props, l_keys(k)), 1, 20);
                 when 'EXTRUDE'       then l_extr         := to_yn(pstr(l_props, l_keys(k)), 'N');
                 when 'TESSELLATE'    then l_tess         := to_yn(pstr(l_props, l_keys(k)), 'N');
-                when 'ICON_HREF'     then l_icon_href    := pstr(l_props, l_keys(k));
+                when 'ICON_HREF'     then l_icon_href    := substr(pstr(l_props, l_keys(k)), 1, 1000);
                 when 'ICON_SCALE'    then l_icon_scale   := pnum(l_props, l_keys(k));
-                when 'LABEL_COLOR'   then l_label_color  := pstr(l_props, l_keys(k));
+                when 'LABEL_COLOR'   then l_label_color  := substr(pstr(l_props, l_keys(k)), 1, 8);
                 when 'LABEL_SCALE'   then l_label_scale  := pnum(l_props, l_keys(k));
-                when 'LINE_COLOR'    then l_line_color   := pstr(l_props, l_keys(k));
+                when 'LINE_COLOR'    then l_line_color   := substr(pstr(l_props, l_keys(k)), 1, 8);
                 when 'LINE_WIDTH'    then l_line_width   := pnum(l_props, l_keys(k));
-                when 'POLY_COLOR'    then l_poly_color   := pstr(l_props, l_keys(k));
+                when 'POLY_COLOR'    then l_poly_color   := substr(pstr(l_props, l_keys(k)), 1, 8);
                 when 'POLY_FILL'     then l_poly_fill    := to_yn(pstr(l_props, l_keys(k)), 'Y');
                 when 'POLY_OUTLINE'  then l_poly_outline := to_yn(pstr(l_props, l_keys(k)), 'Y');
                 else l_ext.put(l_keys(k), l_props.get(l_keys(k)));
@@ -376,14 +379,22 @@ as
            updated_at       = systimestamp,
            updated_by       = nvl(p_updated_by, user)
      where asset_id = p_asset_id;
-    pck_kml_log.debug(c_pkg, 'upd', 'updated asset ' || p_asset_id);
+    if sql%rowcount = 0 then   -- capture before logging (autonomous INSERT resets sql%rowcount)
+      pck_kml_log.warn(c_pkg, 'upd', 'asset ' || p_asset_id || ' not found; nothing updated');
+    else
+      pck_kml_log.debug(c_pkg, 'upd', 'updated asset ' || p_asset_id);
+    end if;
   end upd;
 
 
   procedure del(p_asset_id in number) is
   begin
     delete from kml_job_assets where asset_id = p_asset_id;
-    pck_kml_log.debug(c_pkg, 'del', 'deleted asset ' || p_asset_id);
+    if sql%rowcount = 0 then   -- capture before logging (autonomous INSERT resets sql%rowcount)
+      pck_kml_log.warn(c_pkg, 'del', 'asset ' || p_asset_id || ' not found; nothing deleted');
+    else
+      pck_kml_log.debug(c_pkg, 'del', 'deleted asset ' || p_asset_id);
+    end if;
   end del;
 
 

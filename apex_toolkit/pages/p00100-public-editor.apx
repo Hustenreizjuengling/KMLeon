@@ -1556,10 +1556,15 @@ page 100 (
                         :P100_TESSELLATE   := 'N';
                         :P100_EXT_DATA     := null;
                       else
-                        select * into l_a
-                          from kml_job_assets
-                         where asset_id = to_number(:P100_ASSET_ID)
-                           and job_id   = to_number(:P100_JOB_ID);
+                        begin
+                          select * into l_a
+                            from kml_job_assets
+                           where asset_id = to_number(:P100_ASSET_ID)
+                             and job_id   = to_number(:P100_JOB_ID);
+                        exception
+                          when no_data_found then
+                            raise_application_error(-20901, 'Feature does not belong to this job.');
+                        end;
                         :P100_GEOJSON      := nvl(l_a.geometry_geojson, sdo_util.to_geojson(l_a.geometry_sdo));
                         :P100_NAME         := l_a.name;
                         :P100_FOLDER       := l_a.folder_name;

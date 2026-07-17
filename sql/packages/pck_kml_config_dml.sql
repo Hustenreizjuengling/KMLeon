@@ -57,7 +57,8 @@ as
         t.value_string    = p_vs,
         t.value_number    = p_vn,
         t.value_timestamp  = p_vt,
-        t.category        = nvl(p_category, t.category),
+        -- category is intrinsic to a key: NEVER changed on update (a set_* call
+        -- with the SETTING default must not reclassify a METRIC row)
         t.description     = nvl(p_description, t.description),
         t.updated_at      = systimestamp,
         t.updated_by      = user
@@ -93,46 +94,77 @@ as
   end seed;
 
 
-  function get_string(p_key in varchar2, p_default in varchar2 default null) return varchar2 is
-    l_val kml_config.value_string%type;
+  -- Shared row fetch for the typed getters. Warns (once per call) when a key is
+  -- read through the wrong-typed getter -- a silent NULL there hides config bugs.
+  -- p_found: FALSE when the key does not exist at all.
+  procedure fetch_row(
+    p_key      in  varchar2,
+    p_expected in  varchar2,
+    p_getter   in  varchar2,
+    p_row      out kml_config%rowtype,
+    p_found    out boolean
+  ) is
   begin
-    select value_string into l_val from kml_config where config_key = p_key;
-    return l_val;
+    select * into p_row from kml_config where config_key = p_key;
+    p_found := true;
+    if p_row.data_type <> p_expected
+       and not (p_expected = 'STRING' and p_row.data_type = 'BOOLEAN')   -- BOOLEAN lives in value_string
+    then
+      pck_kml_log.warn(c_pkg, p_getter,
+        'key ' || p_key || ' is ' || p_row.data_type || ', read as ' || p_expected
+        || ' -- returning the default');
+    end if;
   exception
-    when no_data_found then return p_default;
+    when no_data_found then
+      p_found := false;
+  end fetch_row;
+
+
+  function get_string(p_key in varchar2, p_default in varchar2 default null) return varchar2 is
+    l_row   kml_config%rowtype;
+    l_found boolean;
+  begin
+    fetch_row(p_key, 'STRING', 'get_string', l_row, l_found);
+    if not l_found then
+      return p_default;
+    end if;
+    return nvl(l_row.value_string, p_default);   -- row exists but unset: caller default
   end get_string;
 
 
   function get_number(p_key in varchar2, p_default in number default null) return number is
-    l_val kml_config.value_number%type;
+    l_rec   kml_config%rowtype;
+    l_found boolean;
   begin
-    select value_number into l_val from kml_config where config_key = p_key;
-    return l_val;
-  exception
-    when no_data_found then return p_default;
+    fetch_row(p_key, 'NUMBER', 'get_number', l_rec, l_found);
+    if not l_found then
+      return p_default;
+    end if;
+    return nvl(l_rec.value_number, p_default);
   end get_number;
 
 
   function get_timestamp(p_key in varchar2, p_default in timestamp default null) return timestamp is
-    l_val kml_config.value_timestamp%type;
+    l_rec   kml_config%rowtype;
+    l_found boolean;
   begin
-    select value_timestamp into l_val from kml_config where config_key = p_key;
-    return l_val;
-  exception
-    when no_data_found then return p_default;
+    fetch_row(p_key, 'TIMESTAMP', 'get_timestamp', l_rec, l_found);
+    if not l_found then
+      return p_default;
+    end if;
+    return nvl(l_rec.value_timestamp, p_default);
   end get_timestamp;
 
 
   function get_boolean(p_key in varchar2, p_default in boolean default false) return boolean is
-    l_val kml_config.value_string%type;
+    l_rec   kml_config%rowtype;
+    l_found boolean;
   begin
-    select value_string into l_val from kml_config where config_key = p_key;
-    if l_val is null then          -- row exists but unset: honour the caller's default
+    fetch_row(p_key, 'BOOLEAN', 'get_boolean', l_rec, l_found);
+    if not l_found or l_rec.value_string is null then
       return p_default;
     end if;
-    return upper(l_val) in ('Y', 'YES', 'TRUE', '1');
-  exception
-    when no_data_found then return p_default;
+    return upper(l_rec.value_string) in ('Y', 'YES', 'TRUE', '1');
   end get_boolean;
 
 
@@ -175,10 +207,16 @@ as
 
 
   procedure bump_metric(p_key in varchar2, p_by in number default 1) is
-    l_cur number;
   begin
-    l_cur := get_number(p_key, 0);
-    upsert(p_key, 'METRIC', 'NUMBER', null, nvl(l_cur, 0) + p_by, null, null);
+    -- atomic in-place increment (a read-modify-write would lose concurrent bumps)
+    update kml_config
+       set value_number = nvl(value_number, 0) + p_by,
+           updated_at   = systimestamp,
+           updated_by   = user
+     where config_key = p_key;
+    if sql%rowcount = 0 then
+      upsert(p_key, 'METRIC', 'NUMBER', null, p_by, null, null);
+    end if;
   exception
     when others then
       pck_kml_log.warn(c_pkg, 'bump_metric', 'metric ' || p_key || ' skipped: ' || sqlerrm);
@@ -190,6 +228,10 @@ as
     --- SETTINGs (general behaviour) --------------------------------------------
     seed('DELETE_ASSETS_AFTER_SUCCESS', 'SETTING', 'BOOLEAN', 'Y', null, null,
          'After a job builds successfully, delete its stored KML_JOB_ASSETS rows (frees space; the result stays on the job).');
+    seed('LOG_THRESHOLD',              'SETTING', 'STRING',  'INFO', null, null,
+         'Minimum severity persisted by PCK_KML_LOG (ERROR/WARN/INFO/DEBUG). Read once per session; new sessions pick changes up.');
+    seed('NOTIFY_MAX_ATTACH_BYTES',    'SETTING', 'NUMBER',  null, 10485760, null,
+         'Results larger than this are e-mailed without the attachment (PCK_KML_NOTIFY).');
 
     --- SETTINGs (the cleanup / maintenance job) --------------------------------
     seed('CLEANUP_ENABLED',        'SETTING', 'BOOLEAN', 'N',  null, null,

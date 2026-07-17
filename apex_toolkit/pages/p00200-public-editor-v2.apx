@@ -816,9 +816,14 @@ page 200 (
                   if l_n = 0 then
                     raise_application_error(-20902, 'Invalid access key.');
                   end if;
-                  select * into l_a from kml_job_assets
-                   where asset_id = to_number(apex_application.g_x01)
-                     and job_id   = to_number(:P200_JOB_ID);
+                  begin
+                    select * into l_a from kml_job_assets
+                     where asset_id = to_number(apex_application.g_x01)
+                       and job_id   = to_number(:P200_JOB_ID);
+                  exception
+                    when no_data_found then
+                      raise_application_error(-20901, 'Feature does not belong to this job.');
+                  end;
                   apex_json.open_object;
                   apex_json.write('asset_id', l_a.asset_id);
                   apex_json.write('geojson', nvl(l_a.geometry_geojson, sdo_util.to_geojson(l_a.geometry_sdo)));
@@ -859,9 +864,9 @@ page 200 (
                   l_n    number;
                   l_aid  number := json_value(:P200_PAYLOAD, '$.asset_id' returning number);
                   l_gj   clob   := json_value(:P200_PAYLOAD, '$.geojson' returning clob);
-                  l_lc   varchar2(20) := json_value(:P200_PAYLOAD, '$.line_color');
-                  l_pc   varchar2(20) := json_value(:P200_PAYLOAD, '$.poly_color');
-                  l_lbc  varchar2(20) := json_value(:P200_PAYLOAD, '$.label_color');
+                  l_lc   varchar2(64) := json_value(:P200_PAYLOAD, '$.line_color');
+                  l_pc   varchar2(64) := json_value(:P200_PAYLOAD, '$.poly_color');
+                  l_lbc  varchar2(64) := json_value(:P200_PAYLOAD, '$.label_color');
                   l_pa   number := json_value(:P200_PAYLOAD, '$.poly_alpha' returning number);
                   l_line varchar2(8) := case when json_value(:P200_PAYLOAD, '$.line_color') is not null then pck_kml_engine.rgba_to_kml(ltrim(l_lc, '#')) end;
                   l_poly varchar2(8) := case when json_value(:P200_PAYLOAD, '$.poly_color') is not null then pck_kml_engine.rgba_to_kml(ltrim(l_pc, '#'), nvl(l_pa, 128)) end;

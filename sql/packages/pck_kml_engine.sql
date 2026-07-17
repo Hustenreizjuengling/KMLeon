@@ -136,13 +136,25 @@ as
   ) return clob is
     l_geom sdo_geometry;
     l_kml  clob;
+    -- canonical KML altitudeMode (case-insensitive in, exact case out); anything
+    -- else is dropped with a WARN instead of emitting a dead tag into the KML.
+    l_amv  varchar2(20)  := case lower(trim(p_altitude_mode))
+                              when 'clamptoground'    then 'clampToGround'
+                              when 'relativetoground' then 'relativeToGround'
+                              when 'absolute'         then 'absolute'
+                            end;
     l_ex   varchar2(40)  := case when p_extrude    = 'Y' then '<extrude>1</extrude>' end;
     l_te   varchar2(40)  := case when p_tessellate = 'Y' then '<tessellate>1</tessellate>' end;
-    l_am   varchar2(120) := case when p_altitude_mode is not null
-                                 then '<altitudeMode>' || escape_xml(p_altitude_mode) || '</altitudeMode>' end;
+    l_am   varchar2(120) := case when l_amv is not null
+                                 then '<altitudeMode>' || l_amv || '</altitudeMode>' end;
     l_pt   varchar2(200) := l_ex || l_am;          -- Point: tessellate is not valid
     l_ln   varchar2(200) := l_ex || l_te || l_am;  -- LineString / Polygon
   begin
+    if p_altitude_mode is not null and l_amv is null then
+      pck_kml_log.warn(c_pkg, 'geometry_to_kml',
+        'unknown altitude_mode "' || p_altitude_mode || '" ignored (use clampToGround/relativeToGround/absolute)');
+    end if;
+
     if p_sdo is not null then
       l_geom := p_sdo;
     elsif p_geojson is not null and dbms_lob.getlength(p_geojson) > 0 then
@@ -152,6 +164,12 @@ as
     end if;
 
     l_kml := sdo_util.to_kmlgeometry(l_geom);
+
+    -- Newer releases (26ai) emit their own <extrude>/<tessellate>/<altitudeMode>
+    -- defaults inside every geometry; 19c emits none. Strip them so the output is
+    -- version-neutral and controlled solely by KMLeon's placement columns --
+    -- otherwise the injected tags below would duplicate and contradict them.
+    l_kml := regexp_replace(l_kml, '<(extrude|tessellate|altitudeMode)>[^<]*</\1>', '');
 
     -- Inject placement tags right after each geometry's opening tag (KML requires
     -- them before <coordinates>/boundaries). Works for standalone geometries and
@@ -193,6 +211,9 @@ as
       blob_csid    => nls_charset_id('AL32UTF8'),
       lang_context => l_lang_context,
       warning      => l_warning);
+    if l_warning = dbms_lob.warn_inconvertible_char then
+      pck_kml_log.warn(c_pkg, 'clob_to_blob', 'inconvertible characters replaced during charset conversion');
+    end if;
     return l_blob;
   exception
     when others then   -- never leak the temporary LOB if conversion fails
@@ -763,18 +784,18 @@ as
             when 'GEOM_KML'      then l_geom_kml     := as_clob(i);
             when 'NAME'          then l_name         := as_vc(i);
             when 'DESCRIPTION'   then l_descr        := as_clob(i);
-            when 'FOLDER_NAME'   then l_folder       := as_vc(i);
+            when 'FOLDER_NAME'   then l_folder       := substr(as_vc(i), 1, 1000);
             when 'VISIBILITY'    then l_vis          := yn(as_vc(i), 'Y');
-            when 'ALTITUDE_MODE' then l_alt          := as_vc(i);
+            when 'ALTITUDE_MODE' then l_alt          := substr(as_vc(i), 1, 20);
             when 'EXTRUDE'       then l_extr         := yn(as_vc(i), 'N');
             when 'TESSELLATE'    then l_tess         := yn(as_vc(i), 'N');
-            when 'ICON_HREF'     then l_icon_href    := as_vc(i);
+            when 'ICON_HREF'     then l_icon_href    := substr(as_vc(i), 1, 1000);
             when 'ICON_SCALE'    then l_icon_scale   := as_num(i);
-            when 'LABEL_COLOR'   then l_label_color  := as_vc(i);
+            when 'LABEL_COLOR'   then l_label_color  := substr(as_vc(i), 1, 8);
             when 'LABEL_SCALE'   then l_label_scale  := as_num(i);
-            when 'LINE_COLOR'    then l_line_color   := as_vc(i);
+            when 'LINE_COLOR'    then l_line_color   := substr(as_vc(i), 1, 8);
             when 'LINE_WIDTH'    then l_line_width   := as_num(i);
-            when 'POLY_COLOR'    then l_poly_color   := as_vc(i);
+            when 'POLY_COLOR'    then l_poly_color   := substr(as_vc(i), 1, 8);
             when 'POLY_FILL'     then l_poly_fill    := yn(as_vc(i), 'Y');
             when 'POLY_OUTLINE'  then l_poly_outline := yn(as_vc(i), 'Y');
             when 'EXTENDED_DATA' then
@@ -787,7 +808,9 @@ as
                     l_ext_obj.put(l_ek(j), l_e.get(l_ek(j)));
                   end loop;
                 end;
-              exception when others then null;
+              exception when others then
+                pck_kml_log.warn(c_pkg, 'run_query',
+                  'EXTENDED_DATA column ignored (invalid JSON): ' || sqlerrm, p_job.job_id);
               end;
             when 'EXT_PROP' then
               if as_vc(i) is not null then
@@ -807,7 +830,7 @@ as
             p_job_id           => p_job.job_id,
             p_geometry_sdo     => l_geom_sdo,
             p_geometry_geojson => l_geom_geojson,
-            p_name             => l_name,
+            p_name             => substr(l_name, 1, 400),
             p_description      => l_descr,
             p_extended_data    => l_ext_text,
             p_folder_name      => l_folder,
@@ -952,6 +975,23 @@ as
     end if;
     l_job := pck_kml_jobs_dml.get(p_job_id);
 
+    -- Re-running an ASSETS job whose inputs were auto-cleaned after success would
+    -- silently overwrite the stored result with an empty document -- fail clearly
+    -- instead. First runs are unaffected (finished_at is null); set_failed keeps
+    -- result_kml/result_kmz, so the last good result survives on the row.
+    if upper(l_job.source_type) = 'ASSETS' and l_job.finished_at is not null then
+      declare
+        l_n pls_integer;
+      begin
+        select count(*) into l_n from kml_job_assets where job_id = p_job_id and rownum = 1;
+        if l_n = 0 then
+          raise_application_error(-20816,
+            'ASSETS job ' || p_job_id || ' has no input rows (assets were cleaned up '
+            || 'after the last run); a re-run cannot produce a document.');
+        end if;
+      end;
+    end if;
+
     if upper(l_job.source_type) = 'QUERY' and upper(l_job.source_mode) = 'MATERIALIZE' then
       pck_kml_job_assets_dml.del_by_job(p_job_id);          -- idempotent re-run
       dbms_lob.createtemporary(l_void, true);                -- unused sink, but pass a valid LOB
@@ -964,6 +1004,11 @@ as
       l_kml := build_query_document(l_job, l_count);
     else
       l_kml := build_assets_document(p_job_id, l_count);
+    end if;
+
+    if nvl(l_count, 0) = 0 then
+      pck_kml_log.warn(c_pkg, 'run_job',
+        'job completed with 0 features -- empty document (all rows skipped or no input)', p_job_id);
     end if;
 
     if upper(l_job.output_format) = 'KMZ' then

@@ -40,4 +40,8 @@ drop table kml_jobs        purge;
 drop table kml_config      purge;
 drop table kml_log         purge;
 
-prompt KMLeon removed.
+-- The optional ORDS module and the APEX toolkit app are NOT dropped here (they
+-- live outside this schema's object namespace). If installed, remove them via:
+--   begin ords.delete_module(p_module_name => 'kmleon.v1'); commit; end;  -- SQL Workshop
+--   (App Builder: delete the "KMLeon Toolkit" application)
+prompt KMLeon removed. (ORDS module / APEX app, if installed, must be removed separately - see header.)

@@ -44,5 +44,15 @@ begin
   dbms_output.put_line('kml length  : ' || nvl(dbms_lob.getlength(l_kml), 0));
   dbms_output.put_line('--------------------------------------------------');
   dbms_output.put_line(dbms_lob.substr(l_kml, 3900, 1));
+
+  if pck_kml_job_api.get_status(l_job) != 'COMPLETED'
+     or nvl(dbms_lob.getlength(l_kml), 0) = 0
+     or instr(l_kml, '<Data name="COUNTRY"><value>DE</value>') = 0 then
+    raise_application_error(-20999, 'query smoke FAILED');
+  end if;
+
+  pck_kml_jobs_dml.del(l_job);   -- cleanup
+  commit;
+  dbms_output.put_line('query smoke test OK (job cleaned up)');
 end;
 /

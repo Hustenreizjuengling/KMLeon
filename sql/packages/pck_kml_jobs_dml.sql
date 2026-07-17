@@ -71,6 +71,10 @@ as
 
   -- Back-compat: purge all terminal statuses (delegates to purge).
   procedure purge_finished(p_older_than_days in number default 30);
+
+  -- One-time migration helper: generate an access_key for rows that predate the
+  -- column (update.sql calls this). Returns rows updated.
+  function backfill_access_keys return pls_integer;
 end pck_kml_jobs_dml;
 /
 
@@ -131,7 +135,7 @@ as
       access_key, created_at, created_by, updated_at, updated_by
     ) values (
       p_document_name, p_description, upper(p_output_format), p_output_filename, p_priority,
-      p_user_tab, p_user_id, p_notify_email, p_status, upper(p_source_type), upper(p_source_mode),
+      p_user_tab, p_user_id, p_notify_email, upper(p_status), upper(p_source_type), upper(p_source_mode),
       p_source_query, p_source_binds,
       l_key, l_now, l_who, l_now, l_who
     ) returning job_id into l_id;
@@ -143,13 +147,19 @@ as
 
 
   procedure set_status(p_job_id in number, p_status in varchar2) is
+    l_status varchar2(20) := upper(p_status);
   begin
     update kml_jobs
-       set status     = p_status,
-           updated_at = systimestamp,
-           updated_by = user
+       set status      = l_status,
+           -- terminal statuses always carry finished_at (purge filters on it; a
+           -- CANCELLED row without it would otherwise never be cleaned up)
+           finished_at = case when l_status in ('COMPLETED', 'FAILED', 'CANCELLED')
+                              then coalesce(finished_at, systimestamp)
+                              else finished_at end,
+           updated_at  = systimestamp,
+           updated_by  = user
      where job_id = p_job_id;
-    pck_kml_log.debug(c_pkg, 'set_status', 'status -> ' || p_status, p_job_id);
+    pck_kml_log.debug(c_pkg, 'set_status', 'status -> ' || l_status, p_job_id);
   end set_status;
 
 
@@ -295,6 +305,26 @@ as
   begin
     l_void := purge('COMPLETED,FAILED,CANCELLED', p_older_than_days);
   end purge_finished;
+
+
+  function backfill_access_keys return pls_integer is
+    l_rows pls_integer := 0;
+  begin
+    -- row-by-row so every job gets its own fresh key
+    for r in (select job_id from kml_jobs where access_key is null) loop
+      update kml_jobs
+         set access_key = gen_access_key,
+             updated_at = systimestamp,
+             updated_by = user
+       where job_id = r.job_id
+         and access_key is null;
+      l_rows := l_rows + sql%rowcount;
+    end loop;
+    if l_rows > 0 then
+      pck_kml_log.info(c_pkg, 'backfill_access_keys', 'keys generated for ' || l_rows || ' job(s)');
+    end if;
+    return l_rows;
+  end backfill_access_keys;
 
 end pck_kml_jobs_dml;
 /
