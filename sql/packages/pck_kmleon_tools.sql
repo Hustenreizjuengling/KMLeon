@@ -72,6 +72,22 @@ as
     p_status       out varchar2
   );
 
+  -- Build the complete public-editor deep link (page 200) for a job -- for the
+  -- REST layer and any PL/SQL caller. NOTHING about the URL is configured or
+  -- stored: the relative part comes from APEX itself (a bootstrap APEX session +
+  -- APEX_PAGE.GET_URL -> friendly URL with workspace path/app alias/page alias),
+  -- and the absolute part (scheme/host/context root) is derived from the OWA CGI
+  -- environment of the CURRENT request. Called from plain SQL (no web context)
+  -- the function returns the relative URL.
+  --
+  -- SECURITY: p_access_key is REQUIRED and must match the job (same -20813 as
+  -- "not found", so the endpoint is no enumeration oracle) -- the caller proves
+  -- knowledge of the key (from POST /jobs); this only FORMATS a URL.
+  function public_editor_url(
+    p_job_id     in number,
+    p_access_key in varchar2
+  ) return varchar2;
+
   -- Convert a KML aabbggrr color back to an HTML #RRGGBB string (for loading a
   -- stored asset's color into a color picker). Returns NULL on bad input.
   function kml_to_rgb(p_kml in varchar2) return varchar2;
@@ -547,6 +563,146 @@ as
       exception when others then null;
       end;
   end query_helper;
+
+
+  -- Absolute base of the CURRENT web request, derived purely from the OWA CGI
+  -- environment -- nothing configured. p_scheme_host: 'scheme://host[:port]'
+  -- (NULL outside a web context, e.g. a plain SQL session); p_ctx: the ORDS
+  -- context root (e.g. '/ords'), kept separate because APEX_PAGE.GET_URL may or
+  -- may not already include it in its result depending on the call context.
+  procedure request_base(p_scheme_host out varchar2, p_ctx out varchar2) is
+    l_host   varchar2(400);
+    l_scheme varchar2(10);
+    l_script varchar2(400);
+    l_pat    varchar2(200);
+  begin
+    -- outside a web context the OWA CGI arrays are not initialized and
+    -- get_cgi_env raises VALUE_ERROR instead of returning NULL -- treat both
+    -- as "no web request"
+    begin
+      l_host := owa_util.get_cgi_env('HTTP_HOST');
+    exception when others then
+      l_host := null;
+    end;
+    if l_host is null then
+      p_scheme_host := null;
+      p_ctx         := null;
+      return;
+    end if;
+    l_scheme := lower(nvl(owa_util.get_cgi_env('X-Forwarded-Proto'),
+                case when owa_util.get_cgi_env('SERVER_PORT') = '443' then 'https' else 'http' end));
+    -- context root: SCRIPT_NAME of this request minus the REST-enabled schema
+    -- pattern and everything after it (e.g. '/ords/hr/kmleon/v1' -> '/ords').
+    l_script := nvl(owa_util.get_cgi_env('SCRIPT_NAME'), '/ords');
+    begin
+      select pattern into l_pat
+        from user_ords_schemas
+       where status = 'ENABLED' and rownum = 1;
+    exception when others then
+      l_pat := null;
+    end;
+    if l_pat is not null and instr(l_script, '/' || l_pat || '/') > 0 then
+      p_ctx := substr(l_script, 1, instr(l_script, '/' || l_pat || '/') - 1);
+    elsif l_pat is not null and l_script like '%/' || l_pat then
+      p_ctx := substr(l_script, 1, length(l_script) - length(l_pat) - 1);
+    else
+      p_ctx := l_script;   -- best effort (unusual deployments)
+    end if;
+    p_scheme_host := l_scheme || '://' || l_host;
+  end request_base;
+
+
+  function public_editor_url(
+    p_job_id     in number,
+    p_access_key in varchar2
+  ) return varchar2 is
+    l_n       pls_integer;
+    l_app     number;
+    l_created boolean := false;
+    l_url     varchar2(4000);
+    l_base    varchar2(400);
+  begin
+    -- gate: the caller must know the job's key (same error as "not found" so
+    -- this cannot be used to probe which job ids exist)
+    select count(*) into l_n
+      from kml_jobs
+     where job_id = p_job_id and access_key = p_access_key;
+    if l_n = 0 then
+      raise_application_error(-20813, 'KML job not found: job_id=' || p_job_id);
+    end if;
+
+    -- the toolkit app of THIS schema (alias set in the APEX export)
+    select application_id into l_app
+      from apex_applications
+     where alias = 'KMLEON' and owner = user;
+
+    -- bootstrap an APEX session when running outside APEX (e.g. ORDS handler),
+    -- so APEX_PAGE.GET_URL can render the friendly URL
+    if sys_context('APEX$SESSION', 'APP_SESSION') is null then
+      apex_session.create_session(p_app_id => l_app, p_page_id => 200,
+                                  p_username => 'KMLEON_REST');
+      l_created := true;
+    end if;
+
+    l_url := apex_page.get_url(
+               p_application => l_app,
+               p_page        => 200,
+               p_items       => 'P200_JOB_ID,P200_ACCESS_KEY',
+               p_values      => p_job_id || ',' || p_access_key,
+               p_plain_url   => true);
+
+    if l_created then
+      apex_session.delete_session;
+    end if;
+
+    -- get_url appends the bootstrap session id; strip it (page 200 is public --
+    -- a visitor must not join, or trip over, that throwaway session)
+    l_url := regexp_replace(l_url, '&session=[0-9]+', '');
+    l_url := regexp_replace(l_url, '\?session=[0-9]+&', '?');
+    l_url := regexp_replace(l_url, '\?session=[0-9]+$', '');
+
+    -- absolute when called over the web; relative in a plain SQL session.
+    -- Called with a CGI context, GET_URL already returns the path INCLUDING the
+    -- ORDS context root ('/ords/r/...'); without one it returns '/r/...' --
+    -- prepend the context root only when it is not already there.
+    declare
+      l_ctx varchar2(400);
+    begin
+      request_base(l_base, l_ctx);
+      if l_base is not null then
+        if substr(l_url, 1, 1) != '/' then
+          l_url := '/' || l_url;
+        end if;
+        if l_ctx is null or l_ctx = '/'
+           or substr(l_url, 1, length(l_ctx) + 1) = l_ctx || '/' then
+          l_url := l_base || l_url;
+        else
+          l_url := l_base || l_ctx || l_url;
+        end if;
+      end if;
+    end;
+    return l_url;
+  exception
+    when others then
+      -- capture BEFORE the cleanup block: a handled exception inside a nested
+      -- block resets the current error and a bare RAISE would die with ORA-21002
+      declare
+        l_code pls_integer   := sqlcode;
+        l_msg  varchar2(4000) := sqlerrm;
+      begin
+        if l_created then
+          begin
+            apex_session.delete_session;
+          exception when others then null;
+          end;
+        end if;
+        if l_code = -20813 then
+          raise_application_error(-20813, 'KML job not found: job_id=' || p_job_id);
+        else
+          raise_application_error(-20818, 'editor URL could not be built: ' || l_msg);
+        end if;
+      end;
+  end public_editor_url;
 
 
   function kml_to_rgb(p_kml in varchar2) return varchar2 is

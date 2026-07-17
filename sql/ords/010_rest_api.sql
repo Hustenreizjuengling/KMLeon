@@ -11,8 +11,17 @@
 --
 -- RESULTING ENDPOINTS  (base: /ords/<schema-alias>/kmleon/v1/)
 --   GET    jobs                 list recent jobs
---   POST   jobs                 create an ASSETS job   (JSON body)        -> {job_id,status,access_key}
+--   POST   jobs                 create an ASSETS job   (JSON body)
+--                               -> {job_id,status,access_key,editor_url}
 --   GET    jobs/{id}            job status + metadata
+--   GET    jobs/{id}/editor-link?key=<access_key>
+--                               full public-editor deep link for the job
+--                               -> {job_id,editor_url}. The key is REQUIRED and
+--                               must match (comes from the POST /jobs response),
+--                               so this endpoint cannot be used to harvest keys.
+--                               The URL is NOT configured anywhere: APEX builds
+--                               it (APEX_SESSION + APEX_PAGE.GET_URL) and the
+--                               host/context root come from THIS request.
 --   POST   jobs/{id}/features   add features from a GeoJSON FeatureCollection (JSON body)
 --   POST   jobs/{id}/submit     DRAFT -> PENDING (needs KMLEON_DISPATCHER enabled; it is
 --                               created DISABLED by default -- use /run for on-demand)
@@ -95,6 +104,7 @@ begin
         l_doc varchar2(400);
         l_id  number;
         l_key varchar2(64);
+        l_url varchar2(4000);
       begin
         l_in  := json_object_t.parse(:body_text);
         l_doc := l_in.get_string('document_name');
@@ -114,9 +124,18 @@ begin
                     p_notify_email    => l_in.get_string('notify_email'));
           commit;
           l_key := pck_kml_job_api.get_access_key(l_id);
+          -- best-effort: the ready-to-use public-editor deep link (built by APEX,
+          -- host from this request); a URL problem must never fail the creation
+          begin
+            l_url := pck_kmleon_tools.public_editor_url(l_id, l_key);
+          exception when others then
+            l_url := null;
+          end;
           :status_code := 201;
           owa_util.mime_header('application/json');
-          htp.p('{"job_id":' || l_id || ',"status":"DRAFT","access_key":"' || l_key || '"}');
+          htp.p('{"job_id":' || l_id || ',"status":"DRAFT","access_key":"' || l_key || '"'
+                || case when l_url is not null then ',"editor_url":"' || l_url || '"' end
+                || '}');
         end if;
       exception
         when others then        -- malformed JSON body etc.
@@ -161,6 +180,45 @@ begin
         :status_code := 404;
         owa_util.mime_header('application/json');
         htp.p('{"error":"job not found"}');
+      end;
+    ~');
+
+  ----------------------------------------------------------------- jobs/:id/editor-link
+  -- Full public-editor deep link for one job. ?key= is REQUIRED and must match
+  -- the job's access_key (the caller has it from POST /jobs) -- wrong/missing
+  -- key behaves exactly like an unknown job (404), so ids cannot be probed.
+  ords.define_template(p_module_name => 'kmleon.v1', p_pattern => 'jobs/:id/editor-link');
+  ords.define_handler(
+    p_module_name => 'kmleon.v1',
+    p_pattern     => 'jobs/:id/editor-link',
+    p_method      => 'GET',
+    p_source_type => ords.source_type_plsql,
+    p_source      => q'~
+      declare
+        l_url varchar2(4000);
+      begin
+        if :key is null then
+          :status_code := 400;
+          owa_util.mime_header('application/json');
+          htp.p('{"error":"key query parameter is required"}');
+        else
+          l_url := pck_kmleon_tools.public_editor_url(to_number(:id), :key);
+          owa_util.mime_header('application/json');
+          htp.p('{"job_id":' || :id || ',"editor_url":"' || l_url || '"}');
+        end if;
+      exception
+        when others then
+          if sqlcode = -20813 then            -- job not found OR wrong key (deliberately identical)
+            :status_code := 404;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job not found"}');
+          elsif sqlcode = -1722 then          -- non-numeric :id
+            :status_code := 400;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"invalid job id"}');
+          else
+            raise;
+          end if;
       end;
     ~');
 

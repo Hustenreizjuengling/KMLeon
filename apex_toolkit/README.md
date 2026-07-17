@@ -139,6 +139,14 @@ end;
 - `KML_JOBS.access_key` is generated automatically on insert (64 hex chars,
   `PCK_KML_JOBS_DML.gen_access_key`). Read it back with
   `PCK_KML_JOB_API.get_access_key(job_id)`; the **REST** `POST /jobs` also returns it.
+- **REST callers don't have to build the link themselves:** `POST /jobs` returns a
+  ready `editor_url`, and `GET /jobs/{id}/editor-link?key=<access_key>` re-fetches it
+  any time. The URL is **never configured/stored** — the relative part comes from APEX
+  itself (`PCK_KMLEON_TOOLS.public_editor_url`: bootstrap `APEX_SESSION` +
+  `APEX_PAGE.GET_URL`, friendly URL with workspace/app/page aliases) and scheme, host
+  and ORDS context root are derived from the incoming request's CGI environment. The
+  `key` parameter is required and must match — the endpoint only formats what the
+  caller already knows, so it cannot be used to harvest tokens.
 - The two link items are `sessionStateProtection: unrestricted`, so the link needs **no
   APEX checksum** — the unguessable `access_key` is the access control.
 - The job is **not** submitted/rendered by your app; the user finishes it in the editor
