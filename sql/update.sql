@@ -16,9 +16,11 @@
 -- This does NOT touch existing tables or the scheduler jobs. To (re)apply the
 -- cleanup schedule afterwards, run:  @scheduler/020_maintenance.sql
 --
--- NOTE: PCK_KML_JOBS_DML now generates the access_key via DBMS_CRYPTO. If the
--- package compiles INVALID after this update, grant the dependency:
---   grant execute on sys.dbms_crypto to <schema>;   then re-run this script.
+-- NOTE: PCK_KML_JOBS_DML now generates the access_key via DBMS_CRYPTO (invoked
+-- dynamically, so the package stays VALID without the grant). Without the grant
+-- it falls back to the weaker GUID-pair token and WARNs in KML_LOG on every key.
+-- Recommended (run as SYS):  grant execute on sys.dbms_crypto to <schema>;
+-- The strong source is picked up immediately -- no recompile needed.
 --------------------------------------------------------------------------------
 
 set define off

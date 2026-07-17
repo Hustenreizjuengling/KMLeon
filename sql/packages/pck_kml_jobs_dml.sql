@@ -78,10 +78,21 @@ create or replace package body pck_kml_jobs_dml
 as
 
   function gen_access_key return varchar2 is
+    l_raw raw(32);
   begin
     -- Cryptographically strong link token: 32 random bytes -> 64 lowercase hex
-    -- chars. Requires EXECUTE on SYS.DBMS_CRYPTO (see install.sql header).
-    return lower(rawtohex(dbms_crypto.randombytes(32)));
+    -- chars. DBMS_CRYPTO needs an explicit grant (see install.sql header) and is
+    -- called dynamically so this package compiles and works without it -- and
+    -- picks the strong source up immediately once the grant exists. Until then
+    -- we fall back to the previous GUID-pair token and WARN.
+    execute immediate 'begin :r := sys.dbms_crypto.randombytes(32); end;' using out l_raw;
+    return lower(rawtohex(l_raw));
+  exception
+    when others then
+      pck_kml_log.warn(c_pkg, 'gen_access_key',
+        'dbms_crypto unavailable (' || sqlerrm || '); falling back to sys_guid entropy. '
+        || 'Fix: grant execute on sys.dbms_crypto to ' || user);
+      return lower(rawtohex(sys_guid()) || rawtohex(sys_guid()));
   end gen_access_key;
 
 

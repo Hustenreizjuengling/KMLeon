@@ -7,8 +7,9 @@
 --
 -- Requires Oracle 19c with Spatial/Locator (SDO_UTIL); GeoJSON input uses
 -- SDO_UTIL.FROM_GEOJSON (19c). APEX (APEX_ZIP) is only
--- needed for KMZ output. The public access_key token uses DBMS_CRYPTO, so grant
--- it to the owning schema:  grant execute on sys.dbms_crypto to <schema>;
+-- needed for KMZ output. The public access_key token uses DBMS_CRYPTO (called
+-- dynamically; without the grant it falls back to weaker GUID entropy + WARN).
+-- Recommended (run as SYS):  grant execute on sys.dbms_crypto to <schema>;
 -- Re-running on an existing install: @uninstall.sql first
 -- (table DDL is not CREATE OR REPLACE).
 --------------------------------------------------------------------------------
