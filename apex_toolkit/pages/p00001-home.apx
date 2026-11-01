@@ -223,7 +223,36 @@ page 1 (
             ]
         }
         initialPositionAndZoom {
-            type: basedOnSpatialResults
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- centre + zoom from the extent of the displayed assets (same job rule as the
+                -- layers); falls back to Germany when the job has no assets
+                with g as (
+                  select pck_kml_geom.from_geojson(nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo))) as geom
+                    from kml_job_assets
+                   where job_id = nvl(to_number(:P1_JOB_ID), (select max(job_id) from kml_job_assets))
+                ), m as (
+                  select sdo_aggr_mbr(geom) as mbr from g
+                ), e as (
+                  select sdo_geom.sdo_min_mbr_ordinate(mbr, 1) as x1, sdo_geom.sdo_max_mbr_ordinate(mbr, 1) as x2,
+                         sdo_geom.sdo_min_mbr_ordinate(mbr, 2) as y1, sdo_geom.sdo_max_mbr_ordinate(mbr, 2) as y2
+                    from m where mbr is not null
+                )
+                select nvl((x1 + x2) / 2, 10.4) as map_lon,
+                       nvl((y1 + y2) / 2, 51.1) as map_lat,
+                       case when x1 is null then 4
+                            when greatest(x2 - x1, y2 - y1) > 20 then 3
+                            when greatest(x2 - x1, y2 - y1) > 5  then 5
+                            when greatest(x2 - x1, y2 - y1) > 1  then 6
+                            when greatest(x2 - x1, y2 - y1) > 0.2 then 8
+                            else 11 end as zoom_level
+                  from dual left join e on 1 = 1
+                ```
+            geometryColumnDataType: longitudeLatitude
+            initialLongitudeColumn: MAP_LON
+            initialLatitudeColumn: MAP_LAT
+            initialZoomlevelColumn: ZOOM_LEVEL
         }
         attributes {
             messagesPosition: below
@@ -241,12 +270,17 @@ page 1 (
                 type: sqlQuery
                 sqlQuery:
                     ```sql
+                    -- points only: lines/polygons have their own layers below
+                    select * from (
                     select asset_id as id,
                            name,
                            nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
                       from kml_job_assets
                      where job_id = nvl(to_number(:P1_JOB_ID),
-                                        (select max(job_id) from kml_jobs where status = 'COMPLETED'))
+                                        -- no selection: the newest job that still has assets (completed
+                                        -- jobs usually lose theirs via DELETE_ASSETS_AFTER_SUCCESS)
+                                        (select max(job_id) from kml_job_assets))
+                    ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
                     ```
                 pageItemsToSubmit: P1_JOB_ID
             }
@@ -257,6 +291,92 @@ page 1 (
             }
             appearance {
                 fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer features_lines (
+            layerType: lines
+            name: Features (lines)
+            label {
+                label: Features (lines)
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- lines only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                      from kml_job_assets
+                     where job_id = nvl(to_number(:P1_JOB_ID),
+                                        -- no selection: the newest job that still has assets (completed
+                                        -- jobs usually lose theirs via DELETE_ASSETS_AFTER_SUCCESS)
+                                        (select max(job_id) from kml_job_assets))
+                    ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
+                    ```
+                pageItemsToSubmit: P1_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer features_polygons (
+            layerType: polygons
+            name: Features (polygons)
+            label {
+                label: Features (polygons)
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- polygons only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                      from kml_job_assets
+                     where job_id = nvl(to_number(:P1_JOB_ID),
+                                        -- no selection: the newest job that still has assets (completed
+                                        -- jobs usually lose theirs via DELETE_ASSETS_AFTER_SUCCESS)
+                                        (select max(job_id) from kml_job_assets))
+                    ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
+                    ```
+                pageItemsToSubmit: P1_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+                fillOpacity: 0.35
+                strokeColor: #2563eb
+                strokeWidth: 2
             }
             tooltip {
                 advancedFormatting: true
@@ -485,7 +605,7 @@ page 1 (
                        display_order
                   from kml_job_assets
                  where job_id = nvl(to_number(:P1_JOB_ID),
-                                    (select max(job_id) from kml_jobs where status = 'COMPLETED'))
+                                    (select max(job_id) from kml_job_assets))   -- newest job that still has assets
                  order by display_order, asset_id
                 ```
             pageItemsToSubmit: P1_JOB_ID

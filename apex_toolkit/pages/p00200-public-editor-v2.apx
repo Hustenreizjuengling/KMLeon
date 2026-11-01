@@ -634,6 +634,8 @@ page 200 (
                 type: sqlQuery
                 sqlQuery:
                     ```sql
+                    -- points only: lines/polygons have their own layers below
+                    select * from (
                     select asset_id as id,
                            name,
                            nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
@@ -642,6 +644,7 @@ page 200 (
                        and exists (select 1 from kml_jobs j
                                     where j.job_id = to_number(:P200_JOB_ID)
                                       and j.access_key = :P200_ACCESS_KEY)
+                    ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
                     ```
                 pageItemsToSubmit: P200_JOB_ID,P200_ACCESS_KEY
             }
@@ -652,6 +655,92 @@ page 200 (
             }
             appearance {
                 fillColor: #16a34a
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer saved_lines (
+            layerType: lines
+            name: Saved features (lines)
+            label {
+                label: Saved features (lines)
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- lines only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                      from kml_job_assets a
+                     where a.job_id = to_number(:P200_JOB_ID)
+                       and exists (select 1 from kml_jobs j
+                                    where j.job_id = to_number(:P200_JOB_ID)
+                                      and j.access_key = :P200_ACCESS_KEY)
+                    ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
+                    ```
+                pageItemsToSubmit: P200_JOB_ID,P200_ACCESS_KEY
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #16a34a
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer saved_polygons (
+            layerType: polygons
+            name: Saved features (polygons)
+            label {
+                label: Saved features (polygons)
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- polygons only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                      from kml_job_assets a
+                     where a.job_id = to_number(:P200_JOB_ID)
+                       and exists (select 1 from kml_jobs j
+                                    where j.job_id = to_number(:P200_JOB_ID)
+                                      and j.access_key = :P200_ACCESS_KEY)
+                    ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
+                    ```
+                pageItemsToSubmit: P200_JOB_ID,P200_ACCESS_KEY
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #16a34a
+                fillOpacity: 0.35
+                strokeColor: #16a34a
+                strokeWidth: 2
             }
             tooltip {
                 advancedFormatting: true

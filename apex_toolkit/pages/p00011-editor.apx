@@ -352,11 +352,14 @@ page 11 (
                 type: sqlQuery
                 sqlQuery:
                     ```sql
+                    -- points only: lines/polygons have their own layers below
+                    select * from (
                     select asset_id as id,
                            name,
                            nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
                       from kml_job_assets
                      where job_id = to_number(:P11_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
                     ```
                 pageItemsToSubmit: P11_JOB_ID
             }
@@ -367,6 +370,86 @@ page 11 (
             }
             appearance {
                 fillColor: #16a34a
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer saved_lines (
+            layerType: lines
+            name: Saved assets (lines)
+            label {
+                label: Saved assets (lines)
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- lines only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                      from kml_job_assets
+                     where job_id = to_number(:P11_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
+                    ```
+                pageItemsToSubmit: P11_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #16a34a
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer saved_polygons (
+            layerType: polygons
+            name: Saved assets (polygons)
+            label {
+                label: Saved assets (polygons)
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- polygons only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                      from kml_job_assets
+                     where job_id = to_number(:P11_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
+                    ```
+                pageItemsToSubmit: P11_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #16a34a
+                fillOpacity: 0.35
+                strokeColor: #16a34a
+                strokeWidth: 2
             }
             tooltip {
                 advancedFormatting: true

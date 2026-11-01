@@ -228,6 +228,25 @@ as
 
 
   --==============================================================================
+  -- CLOB assembly primitives
+  --==============================================================================
+
+  procedure app(l_kml in out nocopy clob, p_text in varchar2) is
+  begin
+    if p_text is not null then
+      dbms_lob.writeappend(l_kml, length(p_text), p_text);
+    end if;
+  end app;
+
+  procedure appc(l_kml in out nocopy clob, p_clob in clob) is
+  begin
+    if p_clob is not null and dbms_lob.getlength(p_clob) > 0 then
+      dbms_lob.append(l_kml, p_clob);
+    end if;
+  end appc;
+
+
+  --==============================================================================
   -- Styling and ExtendedData
   --==============================================================================
 
@@ -314,9 +333,11 @@ as
   -- Best-effort and self-contained: each value is coerced to text (string or
   -- number) and the function never propagates an exception -- a single odd value
   -- must not drop the whole block or fail the caller (e.g. a streaming job).
-  function ext_obj_to_xml(p_obj in json_object_t) return varchar2 is
+  -- Builds a CLOB so a feature with many/large properties is not silently
+  -- dropped by the 32k varchar2 limit.
+  function ext_obj_to_xml(p_obj in json_object_t) return clob is
     l_keys json_key_list;
-    l_out  varchar2(32767);
+    l_out  clob;
     l_val  varchar2(32767);
   begin
     if p_obj is null then
@@ -326,7 +347,8 @@ as
     if l_keys.count = 0 then
       return null;
     end if;
-    l_out := '<ExtendedData>';
+    dbms_lob.createtemporary(l_out, true);
+    app(l_out, '<ExtendedData>');
     for i in 1 .. l_keys.count loop
       -- string values via get_string; fall back to numeric (NLS-safe via num)
       begin
@@ -341,20 +363,23 @@ as
           l_val := null;
         end;
       end if;
-      l_out := l_out
-            || '<Data name="' || escape_xml(l_keys(i)) || '">'
-            || '<value>' || escape_xml(l_val) || '</value></Data>';
+      app(l_out, '<Data name="' || escape_xml(l_keys(i)) || '">');
+      app(l_out, '<value>' || escape_xml(l_val) || '</value></Data>');
     end loop;
-    return l_out || '</ExtendedData>';
+    app(l_out, '</ExtendedData>');
+    return l_out;
   exception
     when others then
+      if l_out is not null and dbms_lob.istemporary(l_out) = 1 then
+        dbms_lob.freetemporary(l_out);
+      end if;
       return null;
   end ext_obj_to_xml;
 
 
   -- Render a JSON string as a full <ExtendedData> block (or NULL). Best-effort:
   -- malformed JSON degrades to NULL (logged at debug) rather than throwing.
-  function build_extended_data(p_json in clob) return varchar2 is
+  function build_extended_data(p_json in clob) return clob is
   begin
     if p_json is null or dbms_lob.getlength(p_json) = 0 then
       return null;
@@ -365,25 +390,6 @@ as
       pck_kml_log.debug(c_pkg, 'build_extended_data', 'invalid ExtendedData JSON ignored: ' || sqlerrm);
       return null;
   end build_extended_data;
-
-
-  --==============================================================================
-  -- CLOB assembly primitives
-  --==============================================================================
-
-  procedure app(l_kml in out nocopy clob, p_text in varchar2) is
-  begin
-    if p_text is not null then
-      dbms_lob.writeappend(l_kml, length(p_text), p_text);
-    end if;
-  end app;
-
-  procedure appc(l_kml in out nocopy clob, p_clob in clob) is
-  begin
-    if p_clob is not null and dbms_lob.getlength(p_clob) > 0 then
-      dbms_lob.append(l_kml, p_clob);
-    end if;
-  end appc;
 
 
   procedure open_document(l_kml in out nocopy clob, p_job in kml_jobs%rowtype) is
@@ -513,7 +519,7 @@ as
     l_kml         in out nocopy clob,
     p_name        in varchar2,
     p_description in clob,
-    p_ext_xml     in varchar2,
+    p_ext_xml     in clob,
     p_style       in varchar2,
     p_geom        in clob,
     p_visibility  in varchar2
@@ -537,7 +543,7 @@ as
     if p_style is not null then
       app(l_kml, '<styleUrl>#' || register_style(p_style) || '</styleUrl>');
     end if;
-    app(l_kml, p_ext_xml);
+    appc(l_kml, p_ext_xml);
     appc(l_kml, p_geom);
     app(l_kml, '</Placemark>' || chr(10));
   end append_placemark;
@@ -615,7 +621,7 @@ as
     l_line_color  varchar2(8);     l_line_width   number;
     l_poly_color  varchar2(8);     l_poly_fill    varchar2(1);  l_poly_outline varchar2(1);
     l_geom_sdo    sdo_geometry;    l_geom_geojson clob;          l_geom_kml clob;  l_geom clob;
-    l_ext_obj     json_object_t;   l_ext_text     clob;          l_ext_xml varchar2(32767);
+    l_ext_obj     json_object_t;   l_ext_text     clob;          l_ext_xml clob;
     l_dummy       number;
 
     l_bobj  json_object_t;

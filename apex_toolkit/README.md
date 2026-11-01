@@ -112,8 +112,10 @@ real logic to lock the toolkit down). The public pages also set `navigation {
 warnOnUnsavedChanges: false }` so navigating away (Open editor / Download) never prompts.
 
 Actions are wired as **Dynamic Actions** running server-side PL/SQL (no page
-branches); the download uses a before-header streaming process. The map layer omits
-point-only styling so it renders points, lines and polygons from one geojson source.
+branches); the download uses a before-header streaming process. A native APEX map
+layer draws **one geometry type** (its *Layer Type*: points, lines or polygons), so
+every map in the toolkit (pages 1, 11, 100, 200) stacks three layers over the same
+GeoJSON query, each filtered with `json_value(geojson, '$.type')`.
 
 ## Public editor flow (external integration)
 
