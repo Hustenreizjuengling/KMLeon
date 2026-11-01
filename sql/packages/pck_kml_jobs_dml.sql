@@ -123,10 +123,20 @@ as
     l_who varchar2(128) := nvl(p_created_by, user);
     l_key varchar2(64)  := nvl(p_access_key, gen_access_key);
   begin
-    if upper(p_source_type) = 'QUERY'
-       and (p_source_query is null or dbms_lob.getlength(p_source_query) = 0)
-    then
-      raise_application_error(-20812, 'QUERY job requires a non-empty source_query.');
+    if upper(p_source_type) = 'QUERY' then
+      if p_source_query is null or dbms_lob.getlength(p_source_query) = 0
+         or not regexp_like(dbms_lob.substr(p_source_query, 4000, 1), '\S')
+      then
+        raise_application_error(-20812, 'QUERY job requires a non-empty source_query.');
+      end if;
+      -- Only a query may be stored: DBMS_SQL.PARSE executes DDL at parse time, so a
+      -- "source query" like CREATE/DROP/GRANT would run with the engine's privileges.
+      if not regexp_like(regexp_replace(dbms_lob.substr(p_source_query, 4000, 1),
+                                        '^(\s+|/\*.*?\*/|--[^' || chr(10) || ']*' || chr(10) || ')+', ''),
+                         '^(select|with)(\s|\(|/\*|--)', 'i')
+      then
+        raise_application_error(-20817, 'source_query must be a SELECT (or WITH ... SELECT) statement.');
+      end if;
     end if;
 
     insert into kml_jobs (

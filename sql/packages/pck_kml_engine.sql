@@ -32,7 +32,7 @@ as
   -- KMLeon release (semantic versioning). Single source of truth for the code;
   -- install.sql / update.sql stamp it into KML_CONFIG (KMLEON_VERSION) and the
   -- REST module exposes it under GET version. Keep in sync with /VERSION.
-  gc_version constant varchar2(20) := '1.2.0';
+  gc_version constant varchar2(20) := '1.3.0';
   function version return varchar2;
 
   -- Convert geometry (SDO or GeoJSON) into a KML geometry fragment, optionally
@@ -238,7 +238,10 @@ as
   procedure app(l_kml in out nocopy clob, p_text in varchar2) is
   begin
     if p_text is not null then
-      dbms_lob.writeappend(l_kml, length(p_text), p_text);
+      -- amount in UCS-2 code units (LENGTH2), not characters: a supplementary
+      -- character (emoji, rare CJK) is 1 char but 2 units in the CLOB -- with
+      -- LENGTH() it would be cut in half and the document would stop being UTF-8
+      dbms_lob.writeappend(l_kml, length2(p_text), p_text);
     end if;
   end app;
 
@@ -276,21 +279,29 @@ as
     p_poly_color   in varchar2, p_poly_fill    in varchar2, p_poly_outline in varchar2
   ) return varchar2 is
     l_out varchar2(32767);   -- fragments (esp. an escaped icon_href) can exceed 4000
+    -- defensive copies: the ASSETS path is validated by the DML package, but QUERY
+    -- rows arrive unchecked -- never emit a non-color or a negative scale/width
+    l_label_color varchar2(8) := case when regexp_like(p_label_color, '^[0-9A-Fa-f]{8}$') then p_label_color end;
+    l_line_color  varchar2(8) := case when regexp_like(p_line_color,  '^[0-9A-Fa-f]{8}$') then p_line_color  end;
+    l_poly_color  varchar2(8) := case when regexp_like(p_poly_color,  '^[0-9A-Fa-f]{8}$') then p_poly_color  end;
+    l_icon_scale  number := case when p_icon_scale  >= 0 then p_icon_scale  end;
+    l_label_scale number := case when p_label_scale >= 0 then p_label_scale end;
+    l_line_width  number := case when p_line_width  >= 0 then p_line_width  end;
   begin
-    if p_icon_href is null and p_icon_scale is null
-       and p_label_color is null and p_label_scale is null
-       and p_line_color is null and p_line_width is null
-       and p_poly_color is null and p_poly_fill is null and p_poly_outline is null
+    if p_icon_href is null and l_icon_scale is null
+       and l_label_color is null and l_label_scale is null
+       and l_line_color is null and l_line_width is null
+       and l_poly_color is null and p_poly_fill is null and p_poly_outline is null
     then
       return null;
     end if;
 
     l_out := '<Style>';
 
-    if p_icon_href is not null or p_icon_scale is not null then
+    if p_icon_href is not null or l_icon_scale is not null then
       l_out := l_out || '<IconStyle>';
-      if p_icon_scale is not null then
-        l_out := l_out || '<scale>' || num(p_icon_scale) || '</scale>';
+      if l_icon_scale is not null then
+        l_out := l_out || '<scale>' || num(l_icon_scale) || '</scale>';
       end if;
       if p_icon_href is not null then
         l_out := l_out || '<Icon><href>' || escape_xml(p_icon_href) || '</href></Icon>';
@@ -298,32 +309,32 @@ as
       l_out := l_out || '</IconStyle>';
     end if;
 
-    if p_label_color is not null or p_label_scale is not null then
+    if l_label_color is not null or l_label_scale is not null then
       l_out := l_out || '<LabelStyle>';
-      if p_label_color is not null then
-        l_out := l_out || '<color>' || lower(p_label_color) || '</color>';
+      if l_label_color is not null then
+        l_out := l_out || '<color>' || lower(l_label_color) || '</color>';
       end if;
-      if p_label_scale is not null then
-        l_out := l_out || '<scale>' || num(p_label_scale) || '</scale>';
+      if l_label_scale is not null then
+        l_out := l_out || '<scale>' || num(l_label_scale) || '</scale>';
       end if;
       l_out := l_out || '</LabelStyle>';
     end if;
 
-    if p_line_color is not null or p_line_width is not null then
+    if l_line_color is not null or l_line_width is not null then
       l_out := l_out || '<LineStyle>';
-      if p_line_color is not null then
-        l_out := l_out || '<color>' || lower(p_line_color) || '</color>';
+      if l_line_color is not null then
+        l_out := l_out || '<color>' || lower(l_line_color) || '</color>';
       end if;
-      if p_line_width is not null then
-        l_out := l_out || '<width>' || num(p_line_width) || '</width>';
+      if l_line_width is not null then
+        l_out := l_out || '<width>' || num(l_line_width) || '</width>';
       end if;
       l_out := l_out || '</LineStyle>';
     end if;
 
-    if p_poly_color is not null or p_poly_fill is not null or p_poly_outline is not null then
+    if l_poly_color is not null or p_poly_fill is not null or p_poly_outline is not null then
       l_out := l_out || '<PolyStyle>';
-      if p_poly_color is not null then
-        l_out := l_out || '<color>' || lower(p_poly_color) || '</color>';
+      if l_poly_color is not null then
+        l_out := l_out || '<color>' || lower(l_poly_color) || '</color>';
       end if;
       if p_poly_fill is not null then
         l_out := l_out || '<fill>' || case when p_poly_fill = 'Y' then '1' else '0' end || '</fill>';
@@ -369,19 +380,25 @@ as
     dbms_lob.createtemporary(l_out, true);
     app(l_out, '<ExtendedData>');
     for i in 1 .. l_keys.count loop
-      -- string values via get_string; fall back to numeric (NLS-safe via num)
+      -- scalars as text (strings as-is, numbers NLS-safe via num, booleans
+      -- true/false); objects and arrays as their JSON text; null -> empty
+      declare
+        l_el json_element_t := p_obj.get(l_keys(i));
       begin
-        l_val := p_obj.get_string(l_keys(i));
+        if l_el is null or l_el.is_null then
+          l_val := null;
+        elsif l_el.is_string then
+          l_val := p_obj.get_string(l_keys(i));
+        elsif l_el.is_number then
+          l_val := num(p_obj.get_number(l_keys(i)));
+        elsif l_el.is_boolean then
+          l_val := case when l_el.is_true then 'true' else 'false' end;
+        else
+          l_val := substr(l_el.to_string, 1, 32000);
+        end if;
       exception when others then
         l_val := null;
       end;
-      if l_val is null then
-        begin
-          l_val := num(p_obj.get_number(l_keys(i)));
-        exception when others then
-          l_val := null;
-        end;
-      end if;
       app(l_out, '<Data name="' || escape_xml(l_keys(i)) || '">');
       app(l_out, '<value>' || escape_xml(l_val) || '</value></Data>');
     end loop;
@@ -436,16 +453,23 @@ as
   function split_path(p_path in varchar2) return t_seg_tab is
     l_segs t_seg_tab := t_seg_tab();
     l_seg  varchar2(1000);
+    l_from pls_integer := 1;
+    l_pos  pls_integer;
   begin
     if p_path is null then
       return l_segs;
     end if;
-    for i in 1 .. regexp_count(p_path, '[^/]+') loop
-      l_seg := trim(regexp_substr(p_path, '[^/]+', 1, i));
+    -- single linear INSTR scan (the former REGEXP_SUBSTR(..., i) per segment
+    -- re-scanned the string for every occurrence: quadratic on deep paths)
+    loop
+      l_pos := instr(p_path, '/', l_from);
+      l_seg := trim(case when l_pos = 0 then substr(p_path, l_from) else substr(p_path, l_from, l_pos - l_from) end);
       if l_seg is not null then
         l_segs.extend;
         l_segs(l_segs.count) := l_seg;
       end if;
+      exit when l_pos = 0;
+      l_from := l_pos + 1;
     end loop;
     return l_segs;
   end split_path;
@@ -709,6 +733,7 @@ as
 
     l_bobj  json_object_t;
     l_bkeys json_key_list;
+    l_has_geom boolean := false;   -- at least one usable geometry column described?
 
     function role_of(p_alias in varchar2) return varchar2 is
       a varchar2(128) := upper(p_alias);
@@ -771,8 +796,25 @@ as
              end;
     end as_clob;
 
+    -- is p_frag a well-formed XML fragment? (GEOMETRY_KML passthrough guard)
+    function well_formed(p_frag in clob) return boolean is
+      l_x xmltype;
+    begin
+      l_x := xmltype('<r>' || p_frag || '</r>');
+      return true;
+    exception when others then
+      return false;
+    end well_formed;
   begin
     p_count := 0;
+    -- DBMS_SQL.PARSE executes DDL immediately: accept nothing but a query, even
+    -- though the DML package already refused non-SELECT text at insert time
+    if not regexp_like(regexp_replace(dbms_lob.substr(p_job.source_query, 4000, 1),
+                                      '^(\s+|/\*.*?\*/|--[^' || chr(10) || ']*' || chr(10) || ')+', ''),
+                       '^(select|with)(\s|\(|/\*|--)', 'i')
+    then
+      raise_application_error(-20817, 'source_query must be a SELECT (or WITH ... SELECT) statement.');
+    end if;
     l_c := dbms_sql.open_cursor;
     dbms_sql.parse(l_c, p_job.source_query, dbms_sql.native);
 
@@ -843,8 +885,15 @@ as
               'column "' || l_desc_t(i).col_name || '" define failed; skipped: ' || sqlerrm, p_job.job_id);
         end;
         l_meta(i) := l_m;
+        if l_m.role in ('GEOM_SDO', 'GEOM_GEOJSON', 'GEOM_KML') and l_m.fetch_kind <> 'SKIP' then
+          l_has_geom := true;
+        end if;
       end;
     end loop;
+    if not l_has_geom then
+      raise_application_error(-20818,
+        'source_query has no usable geometry column: alias one column GEOMETRY (SDO_GEOMETRY), GEOMETRY_GEOJSON or GEOMETRY_KML.');
+    end if;
 
     l_exec := dbms_sql.execute(l_c);
 
@@ -947,7 +996,11 @@ as
 
       else  -- STREAM
         if l_geom_kml is not null and dbms_lob.getlength(l_geom_kml) > 0 then
-          l_geom := l_geom_kml;   -- passthrough: caller-supplied KML is left as-is
+          if well_formed(l_geom_kml) then
+            l_geom := l_geom_kml;   -- passthrough: caller-supplied KML is left as-is
+          else
+            pck_kml_log.warn(c_pkg, 'run_query', 'GEOMETRY_KML passthrough is not well-formed XML; row skipped', p_job.job_id);
+          end if;
         elsif l_geom_sdo is not null then
           l_geom := geometry_to_kml(l_geom_sdo, null, l_alt, l_extr, l_tess);
         elsif l_geom_geojson is not null and dbms_lob.getlength(l_geom_geojson) > 0 then

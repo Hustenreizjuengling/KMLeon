@@ -134,6 +134,7 @@ exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
 | `CLEANUP_RETENTION_DAYS` | SETTING | NUMBER | `30` | Only jobs finished older than this are eligible. |
 | `CLEANUP_STATUSES` | SETTING | STRING | `COMPLETED,CANCELLED` | Terminal statuses the cleanup deletes. |
 | `CLEANUP_LOG_RETENTION_DAYS` | SETTING | NUMBER | `90` | Delete `KML_LOG` rows older than this during cleanup (`0`/absent = keep all). |
+| `STALE_RUNNING_MINUTES` | SETTING | NUMBER | `120` | Cleanup marks jobs `RUNNING` longer than this as `FAILED` (dead session); `0` = never. |
 | `METRIC_LAST_JOB_CREATED_AT` | METRIC | TIMESTAMP | — | Stamped by `PCK_KML_JOBS_DML.ins`. |
 | `METRIC_LAST_JOB_COMPLETED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_completed`. |
 | `METRIC_LAST_JOB_FAILED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_failed`. |
@@ -148,6 +149,12 @@ reinstall/update preserves edited values. Metric stamping is **best-effort**: a 
 write a metric never breaks the surrounding job transaction.
 
 ### Cleanup job (`PCK_KML_MAINTENANCE`)
+
+Before purging, `run_cleanup` calls `recover_stale_jobs`: a job whose session died
+mid-run (killed session, instance restart) stays `RUNNING` and the claim guard refuses to
+re-run it; jobs `RUNNING` longer than `STALE_RUNNING_MINUTES` are marked `FAILED` with an
+explanatory `error_message` so they can be re-run or cleaned up. `run_async` and the
+dispatcher depend on `job_queue_processes` (serial execution when it is 1).
 
 `run_cleanup(p_force)` reads the `CLEANUP_*` settings and purges old jobs (assets cascade)
 via `PCK_KML_JOBS_DML.purge(statuses, days)`. Only **terminal** statuses (`COMPLETED` /

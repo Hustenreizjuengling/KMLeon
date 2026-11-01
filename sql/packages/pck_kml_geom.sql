@@ -97,7 +97,7 @@ as
     end if;
     if nvl(length(io.buf), 0) + length(p_text) > c_max_buf then
       if io.buf is not null then
-        dbms_lob.writeappend(io.lob, length(io.buf), io.buf);
+        dbms_lob.writeappend(io.lob, length2(io.buf), io.buf);   -- UCS-2 units (see PCK_KML_ENGINE.app)
         io.buf := null;
       end if;
     end if;
@@ -107,7 +107,7 @@ as
   procedure flush(io in out nocopy t_out) is
   begin
     if io.buf is not null then
-      dbms_lob.writeappend(io.lob, length(io.buf), io.buf);
+      dbms_lob.writeappend(io.lob, length2(io.buf), io.buf);   -- UCS-2 units (see PCK_KML_ENGINE.app)
       io.buf := null;
     end if;
   end flush;
@@ -186,6 +186,9 @@ as
     -- one coordinate tuple at ordinate index p_i (1-based, points at x)
     function tuple(p_i in pls_integer) return varchar2 is
     begin
+      if l_ord(p_i) is null or l_ord(p_i + 1) is null then
+        raise_application_error(-20833, 'pck_kml_geom.to_kml: NULL ordinate at position ' || p_i);
+      end if;
       return fmt(l_ord(p_i)) || ',' || fmt(l_ord(p_i + 1))
              || case when l_zoff is not null and l_ord(p_i + l_zoff) is not null
                      then ',' || fmt(l_ord(p_i + l_zoff)) end;
@@ -286,8 +289,18 @@ as
 
     ---------------------------------------------------------------- count parts
     if l_g.sdo_point is not null and l_ntrip = 0 then
+      if l_g.sdo_point.x is null or l_g.sdo_point.y is null then
+        raise_application_error(-20833, 'pck_kml_geom.to_kml: NULL ordinate in SDO_POINT');
+      end if;
       l_parts := 1;
     else
+      -- element offsets must stay inside the ordinate array and ascend
+      for e in 1 .. l_ntrip loop
+        if l_ei(3 * e - 2) < 1 or l_ei(3 * e - 2) > l_ord.count
+           or (e < l_ntrip and l_ei(3 * e + 1) < l_ei(3 * e - 2)) then
+          raise_application_error(-20832, 'pck_kml_geom.to_kml: corrupt SDO_ELEM_INFO (offset ' || l_ei(3 * e - 2) || ' of ' || l_ord.count || ' ordinates)');
+        end if;
+      end loop;
       for e in 1 .. l_ntrip loop
         declare
           l_et   pls_integer := l_ei(3 * e - 1);

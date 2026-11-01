@@ -10,6 +10,64 @@ reports it, and `tests/smoke_test_version.sql` fails when the stamp is stale.
 
 ## [Unreleased]
 
+## [1.3.0] – 2026-11-01
+
+Result of a deliberate break-it campaign (API edge cases, hostile text, corrupt
+geometries, hostile QUERY sources, REST/UI fuzzing, concurrency, load). In-place
+update: `sql/update.sql`, re-import `apex_toolkit/`, re-run `010_rest_api.sql`.
+New setting `STALE_RUNNING_MINUTES` (default 120). Inputs that used to be accepted
+silently and produced invalid KML are now rejected with clear errors (see Changed).
+
+### Security
+- QUERY source: only `SELECT` / `WITH … SELECT` is accepted (`-20817`), checked when
+  the job is created and again before `DBMS_SQL.PARSE` – which executes DDL at parse
+  time, so a "query" like `CREATE TABLE …` would have run with the engine's privileges
+  on a schema that holds direct DDL grants.
+
+### Fixed
+- **Supplementary characters (emoji, rare CJK) broke the document's UTF-8**:
+  `DBMS_LOB.WRITEAPPEND` was fed `LENGTH()` (characters) instead of `LENGTH2()` (UCS-2
+  units), cutting surrogate pairs in half. The KML is now well-formed for any text.
+- Invalid colors (`'red'`) and negative scales/widths went verbatim into the KML; they
+  are rejected at insert/update (`-20822` / `-20823`) and dropped for QUERY rows.
+- `NULL` ordinates produced `<coordinates>1,</coordinates>`; corrupt `SDO_ELEM_INFO`
+  raised an unhelpful `ORA-06533`. Both raise `-20833` / `-20832`; the engine skips the
+  feature with a WARN.
+- A non-well-formed `GEOMETRY_KML` passthrough was emitted and corrupted the document;
+  it is now validated and skipped.
+- A QUERY without any geometry column "completed" with an empty document; it fails with
+  `-20818` naming the expected aliases.
+- GeoJSON ingestion accepted any object (`{"type":"Thing"}`) as a feature and crashed on
+  `"features": {}` (`ORA-30625`); both are `-20821`, features without a valid geometry are
+  skipped with a WARN, `properties` that is not an object is ignored.
+- Nested ExtendedData values (objects/arrays) rendered as empty `<value/>`; they are
+  emitted as JSON text, booleans as `true`/`false`.
+- Deeply nested folder paths were quadratic (`REGEXP_SUBSTR(…, i)` per segment): 1000
+  rows with 1000-level paths took 230 s, now 2.5 s.
+- `apply_schedule` dropped the existing `KMLEON_MAINTENANCE` job before validating the new
+  calendar string; a typo left the installation without a schedule. The string is
+  validated first (`-20841`), and the Settings page commits only after a successful apply.
+- `CLEANUP_RETENTION_DAYS < 0` is treated as 0 with a WARN.
+- REST: `"features": {}` and check-constraint violations answered HTTP 555; all client
+  errors (`ORA-01400/-02290/-12899/-30625`, JSON `-40xxx`, KMLeon `-208xx`) are 400 with a
+  `detail` field.
+- Toolkit: the public editor reported every failure as "Save failed."; the processes now
+  return `{"error": …}` and the page shows the reason (invalid GeoJSON, color, extended
+  data, foreign asset). Colors are converted inside the handled block (a failure in the
+  DECLARE section escaped the handler). *New job* raised an error when the created job's
+  run failed instead of announcing success; the Async playground validates its inputs.
+
+### Added
+- `PCK_KML_MAINTENANCE.recover_stale_jobs` + setting `STALE_RUNNING_MINUTES`: jobs
+  `RUNNING` longer than the threshold (dead session) are marked `FAILED` with an
+  explanatory message by the cleanup, so the claim guard no longer blocks them forever.
+- `tests/smoke_test_hostile.sql` (20 checks) covering every finding above.
+
+### Changed
+- Behaviour-preserving defaults everywhere, but previously *accepted* invalid style
+  values now raise at `add_asset` / `upd` / GeoJSON import – fix the caller's data.
+- `run_async` throughput depends on `job_queue_processes` (serial when it is 1).
+
 ## [1.2.0] – 2026-11-01
 
 In-place update: `sql/update.sql`, re-import `apex_toolkit/` (version attribute). No

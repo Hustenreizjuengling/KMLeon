@@ -53,13 +53,15 @@ prompt ===== smoke_test_version
 @@smoke_test_version.sql
 prompt ===== smoke_test_zip
 @@smoke_test_zip.sql
+prompt ===== smoke_test_hostile
+@@smoke_test_hostile.sql
 
 prompt
 prompt ===== SUMMARY
 whenever sqlerror exit failure
 declare
   type t_names is table of varchar2(100);
-  l_expected t_names := t_names('smoke_test', 'smoke_test_config', 'smoke_test_editor_url', 'smoke_test_errors', 'smoke_test_extdata', 'smoke_test_geojson', 'smoke_test_geom', 'smoke_test_kmz', 'smoke_test_notify', 'smoke_test_public', 'smoke_test_query', 'smoke_test_rerun', 'smoke_test_stylemap', 'smoke_test_version', 'smoke_test_zip');
+  l_expected t_names := t_names('smoke_test', 'smoke_test_config', 'smoke_test_editor_url', 'smoke_test_errors', 'smoke_test_extdata', 'smoke_test_geojson', 'smoke_test_geom', 'smoke_test_kmz', 'smoke_test_notify', 'smoke_test_public', 'smoke_test_query', 'smoke_test_rerun', 'smoke_test_stylemap', 'smoke_test_version', 'smoke_test_zip', 'smoke_test_hostile');
   l_n        pls_integer;
   l_fail     pls_integer := 0;
 begin

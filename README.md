@@ -259,7 +259,8 @@ the lighter default.
 
 > ⚠️ The query is dynamic SQL run with **this schema’s privileges** in the dispatcher (the
 > requester’s context is gone). Only trusted apps may enqueue `QUERY` jobs, and **all
-> parameters must be binds** — never string-concatenated.
+> parameters must be binds** — never string-concatenated. Only `SELECT` / `WITH … SELECT`
+> text is accepted (`-20817`); a query without a geometry alias fails with `-20818`.
 </details>
 
 <details>
@@ -332,10 +333,11 @@ OAuth2 client) right after it.
   job: `CLEANUP_ENABLED`, `CLEANUP_INTERVAL` (DBMS_SCHEDULER calendar),
   `CLEANUP_RETENTION_DAYS`, `CLEANUP_STATUSES`.
 
-`PCK_KML_MAINTENANCE.cleanup` reads those settings and purges old jobs (+their
-assets) via `PCK_KML_JOBS_DML.purge` — **only terminal statuses** (`COMPLETED` /
-`FAILED` / `CANCELLED`) are ever deleted, regardless of what `CLEANUP_STATUSES`
-lists. `apply_schedule` (re)creates the `KMLEON_MAINTENANCE` scheduler job from the
+`PCK_KML_MAINTENANCE.cleanup` first recovers **stale** jobs — `RUNNING` longer than
+`STALE_RUNNING_MINUTES` (default 120; a dead session) become `FAILED` with an
+explanatory message so they can be re-run — then purges old jobs (+their assets) via
+`PCK_KML_JOBS_DML.purge` — **only terminal statuses** (`COMPLETED` / `FAILED` /
+`CANCELLED`) are ever deleted, regardless of what `CLEANUP_STATUSES` lists. `apply_schedule` (re)creates the `KMLEON_MAINTENANCE` scheduler job from the
 current config:
 
 ```sql
@@ -405,6 +407,9 @@ The internal `QUERY` source (SQL column aliases) and the external GeoJSON source
 | Placement | `ALTITUDE_MODE`, `EXTRUDE`, `TESSELLATE` |
 | Extra | `EXTENDED_DATA` (a JSON object), plus *any other column/property* |
 
+- **Colors** must be 8 hex digits (`aabbggrr`), scales/widths `>= 0` — anything else is
+  rejected at `add_asset` / GeoJSON import (`-20822` / `-20823`) instead of producing
+  invalid KML; QUERY rows with such values have them dropped.
 - Geometry is **lon/lat** (X = longitude), SRID **4326**. Other SRIDs (e.g. UTM) are
   transformed to WGS84 at render time; arcs / optimized rectangles are expanded; LRS
   measures are dropped. `geometry_geojson` may hold a bare geometry, a Feature or a

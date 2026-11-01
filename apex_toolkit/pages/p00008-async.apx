@@ -470,6 +470,15 @@ page 8 (
                     declare
                       l_job number;
                     begin
+                      -- input guard (the values go into bind JSON for the QUERY source)
+                      if to_number(:P8_POINTS default null on conversion error) is null
+                         or to_number(:P8_POINTS) not between 1 and 100000 then
+                        raise_application_error(-20906, 'Points must be a whole number between 1 and 100000.');
+                      end if;
+                      if to_number(:P8_SECONDS default null on conversion error) is null
+                         or to_number(:P8_SECONDS) not between 0 and 60 then
+                        raise_application_error(-20906, 'Seconds per point must be between 0 and 60.');
+                      end if;
                       l_job := pck_kml_job_api.create_job_from_query(
                         p_document_name => nvl(:P8_MODE, 'ASYNC') || ' demo (' || :P8_POINTS || ' pts x ' || :P8_SECONDS || 's)',
                         p_output_format => nvl(:P8_FORMAT, 'KML'),

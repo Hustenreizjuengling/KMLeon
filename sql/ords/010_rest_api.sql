@@ -152,10 +152,12 @@ begin
           -- client errors only: malformed JSON (-40441), JSON type mismatch (-40xxx),
           -- value/number conversion, KMLeon validation (-208xx); anything else is a
           -- server fault and must surface as 500 with its real cause
-          if sqlcode in (-1722, -6502) or sqlcode between -40999 and -40000 or sqlcode between -20899 and -20800 then
+          if sqlcode in (-1722, -6502, -1400, -2290, -12899)                -- conversion, NOT NULL, check constraint, too long
+             or sqlcode in (-30625) or sqlcode between -40999 and -40000                            -- JSON parse / type errors
+             or sqlcode between -20899 and -20800 then                        -- KMLeon validation
             :status_code := 400;
             owa_util.mime_header('application/json');
-            htp.p('{"error":"invalid request body"}');
+            htp.p(json_object('error' value 'invalid request body', 'detail' value substr(sqlerrm, 1, 300)));
           else
             raise;
           end if;
@@ -274,10 +276,12 @@ begin
             :status_code := 404;
             owa_util.mime_header('application/json');
             htp.p('{"error":"job not found"}');
-          elsif sqlcode in (-20821, -1722, -1858, -40441) then  -- bad GeoJSON / bad id
+          elsif sqlcode in (-1722, -1858, -6502, -2290, -12899)
+             or sqlcode in (-30625) or sqlcode between -40999 and -40000                            -- JSON parse / structure errors
+             or sqlcode between -20899 and -20800 then                        -- bad GeoJSON / style validation
             :status_code := 400;
             owa_util.mime_header('application/json');
-            htp.p('{"error":"invalid request (bad job id or GeoJSON)"}');
+            htp.p(json_object('error' value 'invalid request (bad job id or GeoJSON)', 'detail' value substr(sqlerrm, 1, 300)));
           else
             raise;
           end if;
