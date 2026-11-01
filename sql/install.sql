@@ -6,7 +6,8 @@
 --   -- or in SQLcl:  sql kmleon/****@db @install.sql
 --
 -- Requires Oracle 19c with Spatial/Locator (SDO_UTIL); GeoJSON input uses
--- SDO_UTIL.FROM_GEOJSON (19c). APEX (APEX_ZIP) is only
+-- SDO_UTIL.FROM_GEOJSON (19c). The Oracle JVM is NOT needed (KML geometry is
+-- written by PCK_KML_GEOM in pure PL/SQL). APEX (APEX_ZIP) is only
 -- needed for KMZ output. The public access_key token uses DBMS_CRYPTO (called
 -- dynamically; without the grant it falls back to weaker GUID entropy + WARN).
 -- Recommended (run as SYS):  grant execute on sys.dbms_crypto to <schema>;
@@ -58,6 +59,10 @@ show errors
 
 prompt -- package PCK_KML_NOTIFY
 @@packages/pck_kml_notify.sql
+show errors
+
+prompt -- package PCK_KML_GEOM
+@@packages/pck_kml_geom.sql
 show errors
 
 prompt -- package PCK_KML_ENGINE

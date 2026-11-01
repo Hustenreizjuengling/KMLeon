@@ -10,6 +10,8 @@ go through the DML packages** — never INSERT/UPDATE/DELETE the tables directly
 | `KML_CONFIG` | `PCK_KML_CONFIG_DML` |
 | `KML_LOG` | `PCK_KML_LOG` |
 
+(`PCK_KML_GEOM` — geometry conversion — owns no table.)
+
 Every table ends with the audit columns `created_at`, `created_by`, `updated_at`,
 `updated_by`, auto-stamped by the DML package when passed NULL.
 
@@ -56,8 +58,8 @@ One row per map feature. `job_id` → `KML_JOBS` with `ON DELETE CASCADE`.
 | `description` | CLOB | `<description>`; HTML allowed, CDATA-wrapped. |
 | `extended_data` | CLOB | JSON object `{"k":"v",...}` → `<ExtendedData>` (balloon). |
 | `visibility` | VARCHAR2(1) | `Y`/`N` (default `Y`). |
-| `geometry_sdo` | SDO_GEOMETRY | Native geometry (preferred). |
-| `geometry_geojson` | CLOB | GeoJSON geometry/feature (used if `geometry_sdo` is NULL). |
+| `geometry_sdo` | SDO_GEOMETRY | Native geometry (preferred). Any SRID; non-WGS84 is transformed at render time. |
+| `geometry_geojson` | CLOB | GeoJSON geometry, Feature or FeatureCollection (used if `geometry_sdo` is NULL). |
 | `altitude_mode` | VARCHAR2(20) | `clampToGround`/`relativeToGround`/`absolute`. |
 | `extrude` / `tessellate` | VARCHAR2(1) | `Y`/`N`. |
 | `icon_href` / `icon_scale` | VARCHAR2 / NUMBER | Point icon. |
@@ -213,11 +215,21 @@ render core, only the ingestion channel differs.
 ## Geometry
 
 - Coordinates are **lon/lat** (longitude = X), SRID **4326**.
-- `geometry_sdo` is converted with `SDO_UTIL.TO_KMLGEOMETRY`; `geometry_geojson`
-  is first converted with `SDO_UTIL.FROM_GEOJSON`. **Oracle Spatial/Locator is
-  required, and `FROM_GEOJSON` is a 19c feature — hence KMLeon's 19c floor.**
-- Supported geometry types are whatever `SDO_UTIL.TO_KMLGEOMETRY` supports
-  (points, lines, polygons, and their multi-/collection forms).
+- KML geometry is written by **`PCK_KML_GEOM.to_kml`** — pure PL/SQL, **no Oracle JVM**.
+  (`SDO_UTIL.TO_KMLGEOMETRY` is Java-based and fails with `ORA-29538` on databases
+  without OJVM, e.g. Oracle Database Free container images.) `geometry_geojson` is
+  first converted with `PCK_KML_GEOM.from_geojson` (`SDO_UTIL.FROM_GEOJSON`, native;
+  a 19c feature — hence KMLeon's 19c floor). **Oracle Spatial/Locator is required.**
+- Supported: points, lines, polygons (with holes) and their multi-/collection forms,
+  2D and 3D (altitude kept). Circular arcs, compound elements and optimized
+  rectangles/circles are densified/expanded (`SDO_GEOM.SDO_ARC_DENSIFY`); LRS measure
+  ordinates are dropped; solids raise `-20830`.
+- `geometry_sdo` in a **non-WGS84 SRID** (e.g. UTM 25832) is transformed to lon/lat
+  with `SDO_CS.TRANSFORM` at render time (best-effort; on failure the coordinates are
+  emitted unchanged). SRIDs treated as WGS84: 4326, 4979, 8307, 4327, 4329, NULL.
+- `geometry_geojson` may be a bare geometry, a **Feature** (its geometry is used) or a
+  **FeatureCollection** (all geometries → one `<MultiGeometry>` placemark). Note that
+  `SDO_UTIL.FROM_GEOJSON` alone accepts bare geometries only.
 
 ## Colors
 

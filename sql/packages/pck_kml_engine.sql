@@ -13,7 +13,9 @@
 -- as ExtendedData); see also PCK_KML_JOB_ASSETS_DML.add_features_geojson.
 --
 -- Reads tables directly (SELECT is allowed); ALL writes go through DML packages.
--- Geometry is converted natively via SDO_UTIL (requires Oracle Spatial/Locator).
+-- Geometry is converted by PCK_KML_GEOM (pure PL/SQL; needs Oracle Spatial/
+-- Locator but NOT the Oracle JVM -- SDO_UTIL.TO_KMLGEOMETRY is Java-based and
+-- raises ORA-29538 on databases without OJVM, e.g. Oracle Database Free images).
 -- Minimum Oracle 19c: SDO_UTIL.FROM_GEOJSON is a 19c feature.
 --
 -- SECURITY: a QUERY job's source_query is dynamic SQL executed in the dispatcher
@@ -158,18 +160,19 @@ as
     if p_sdo is not null then
       l_geom := p_sdo;
     elsif p_geojson is not null and dbms_lob.getlength(p_geojson) > 0 then
-      l_geom := sdo_util.from_geojson(p_geojson);
+      l_geom := pck_kml_geom.from_geojson(p_geojson);   -- geometry, Feature or FeatureCollection
     else
       return null;
     end if;
 
-    l_kml := sdo_util.to_kmlgeometry(l_geom);
-
-    -- Newer releases (26ai) emit their own <extrude>/<tessellate>/<altitudeMode>
-    -- defaults inside every geometry; 19c emits none. Strip them so the output is
-    -- version-neutral and controlled solely by KMLeon's placement columns --
-    -- otherwise the injected tags below would duplicate and contradict them.
-    l_kml := regexp_replace(l_kml, '<(extrude|tessellate|altitudeMode)>[^<]*</\1>', '');
+    -- Pure PL/SQL serializer (no OJVM): emits only the geometry tags, never
+    -- <extrude>/<tessellate>/<altitudeMode>, so the placement tags injected below
+    -- are the only ones in the output regardless of the database release. Also
+    -- transforms non-WGS84 geometries to lon/lat and densifies arcs.
+    l_kml := pck_kml_geom.to_kml(l_geom);
+    if l_kml is null then
+      return null;
+    end if;
 
     -- Inject placement tags right after each geometry's opening tag (KML requires
     -- them before <coordinates>/boundaries). Works for standalone geometries and

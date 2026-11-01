@@ -36,7 +36,9 @@
 ## Why KMLeon
 
 - **Pure PL/SQL, no moving parts.** Nothing to deploy outside the database — jobs are
-  drained by a `DBMS_SCHEDULER` dispatcher (or run synchronously).
+  drained by a `DBMS_SCHEDULER` dispatcher (or run synchronously). **No Oracle JVM
+  needed:** KML geometry is written by `PCK_KML_GEOM` in plain PL/SQL, so KMLeon runs
+  on databases without the OJVM component (e.g. Oracle Database Free container images).
 - **Generic.** KMLeon knows nothing about your domain. You supply geometries + metadata;
   it produces standards-compliant KML/KMZ.
 - **Three ways to feed it, one render core:**
@@ -70,7 +72,7 @@
                              │
                              ▼
                     PCK_KML_ENGINE.run_job ───────► result_kml (CLOB)
-                       ├─ SDO / GeoJSON → KML                  or
+                       ├─ PCK_KML_GEOM: SDO / GeoJSON → KML    or
                        ├─ PCK_KML_KMZ.zip_kml ──────► result_kmz (BLOB)
                        ├─ PCK_KML_NOTIFY ──────────► completion e-mail (best-effort)
                        └─ free assets (DELETE_ASSETS_AFTER_SUCCESS) + stamp metrics
@@ -94,7 +96,8 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 | `KML_JOB_ASSETS` | one row per feature: geometry + metadata + style (`PCK_KML_JOB_ASSETS_DML`) |
 | `KML_CONFIG` | typed key/value store: SETTINGs + auto-maintained METRICs (`PCK_KML_CONFIG_DML`) |
 | `KML_LOG` | central log (`PCK_KML_LOG`) |
-| `PCK_KML_ENGINE` | the generic generator: geometry→KML, assembly, execution, dispatcher |
+| `PCK_KML_ENGINE` | the generic generator: assembly, styling, folders, execution, dispatcher |
+| `PCK_KML_GEOM` | pure PL/SQL `SDO_GEOMETRY` → KML geometry (no OJVM); GeoJSON in (geometry / Feature / FeatureCollection); transforms non-WGS84 SRIDs to lon/lat, densifies arcs |
 | `PCK_KML_KMZ` | KMZ zipping (isolated `APEX_ZIP` dependency) |
 | `PCK_KML_NOTIFY` | completion e-mail (file attached); generic, with `resolve_recipient` / `send_mail` hooks |
 | `PCK_KML_MAINTENANCE` | config-driven cleanup of old jobs + its scheduler job |
@@ -106,8 +109,13 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 
 - **Oracle Database 19c** — identity columns, native `JSON_OBJECT_T`/`JSON_ELEMENT_T`,
   and `SDO_UTIL.FROM_GEOJSON` (a 19c addition, hence the floor).
-- **Oracle Spatial / Locator** (`SDO_UTIL`) — geometry conversion: `TO_KMLGEOMETRY`
-  (KML out) and `FROM_GEOJSON` (GeoJSON in, **19c**).
+- **Oracle Spatial / Locator** — `SDO_UTIL.FROM_GEOJSON` (GeoJSON in), `SDO_CS.TRANSFORM`
+  (non-WGS84 input) and `SDO_GEOM.SDO_ARC_DENSIFY` (arcs). All of these are native; the
+  **Oracle JVM is not required** — KML geometry is serialized by `PCK_KML_GEOM` in pure
+  PL/SQL instead of the Java-based `SDO_UTIL.TO_KMLGEOMETRY` (which raises `ORA-29538`
+  on databases without OJVM, such as the Oracle Database Free container images).
+- Optional: `DBMS_CRYPTO` execute grant for strong `access_key` tokens, `CREATE JOB` for
+  `run_async` / the scheduler jobs.
 - **APEX_ZIP** (ships with Oracle APEX) — only for `KMZ` output. Without it, `KML` still
   works and KMZ jobs fail with a clear message.
 
@@ -329,7 +337,10 @@ The internal `QUERY` source (SQL column aliases) and the external GeoJSON source
 | Placement | `ALTITUDE_MODE`, `EXTRUDE`, `TESSELLATE` |
 | Extra | `EXTENDED_DATA` (a JSON object), plus *any other column/property* |
 
-- Geometry is **lon/lat** (X = longitude), SRID **4326**.
+- Geometry is **lon/lat** (X = longitude), SRID **4326**. Other SRIDs (e.g. UTM) are
+  transformed to WGS84 at render time; arcs / optimized rectangles are expanded; LRS
+  measures are dropped. `geometry_geojson` may hold a bare geometry, a Feature or a
+  FeatureCollection (→ one `<MultiGeometry>`).
 - **Colors** are KML `aabbggrr` hex — convert from `RRGGBB` with
   `PCK_KML_ENGINE.rgba_to_kml('FF0000')` (+ optional 0–255 alpha).
 - `FOLDER_NAME` groups features into `<Folder>`s; use `/` to nest

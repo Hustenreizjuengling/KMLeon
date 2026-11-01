@@ -58,6 +58,9 @@ show errors
 prompt -- PCK_KML_NOTIFY
 @@packages/pck_kml_notify.sql
 show errors
+prompt -- PCK_KML_GEOM
+@@packages/pck_kml_geom.sql
+show errors
 prompt -- PCK_KML_ENGINE
 @@packages/pck_kml_engine.sql
 show errors
