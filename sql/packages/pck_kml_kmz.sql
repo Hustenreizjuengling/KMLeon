@@ -3,11 +3,10 @@
 --------------------------------------------------------------------------------
 -- A KMZ is a ZIP archive containing the KML as "doc.kml" at its root.
 --
--- The body depends on APEX_ZIP (ships with Oracle APEX). The dependency is
--- isolated here: the spec has no APEX reference, so PCK_KML_ENGINE always
--- compiles; only this body becomes invalid without APEX, and KMZ jobs then fail
--- at runtime while KML output keeps working. APEX (APEX_ZIP) is assumed available
--- in the target environment; a pure-PL/SQL ZIP fallback was intentionally dropped.
+-- The archive is written by PCK_KML_ZIP -- pure PL/SQL on top of UTL_COMPRESS,
+-- so KMZ output needs neither APEX nor the Oracle JVM (KMZ_ENGINE = INTERNAL,
+-- the default). Installations that prefer APEX_ZIP can set KMZ_ENGINE = APEX;
+-- it is then called dynamically, so this package compiles without APEX.
 --------------------------------------------------------------------------------
 
 create or replace package pck_kml_kmz
@@ -56,14 +55,21 @@ as
   is
     l_zip     blob;
     l_content blob;
+    l_engine  varchar2(20) := upper(nvl(pck_kml_config_dml.get_string('KMZ_ENGINE'), 'INTERNAL'));
   begin
     l_content := clob_to_blob(p_kml);   -- hold the temp LOB so we can free it
-    apex_zip.add_file(
-      p_zipped_blob => l_zip,
-      p_file_name   => p_entry_name,
-      p_content     => l_content
-    );
-    apex_zip.finish(p_zipped_blob => l_zip);
+    if l_engine = 'APEX' then
+      -- optional: APEX_ZIP, bound at run time only (no compile-time dependency)
+      execute immediate q'[
+        begin
+          apex_zip.add_file(p_zipped_blob => :z, p_file_name => :n, p_content => :c);
+          apex_zip.finish(p_zipped_blob => :z);
+        end;]'
+        using in out l_zip, in p_entry_name, in l_content;
+    else
+      pck_kml_zip.add_file(l_zip, p_entry_name, l_content);
+      pck_kml_zip.finish(l_zip);
+    end if;
     if dbms_lob.istemporary(l_content) = 1 then
       dbms_lob.freetemporary(l_content);
     end if;

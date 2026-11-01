@@ -55,6 +55,9 @@ show errors
 prompt -- PCK_KML_JOB_ASSETS_DML
 @@packages/pck_kml_job_assets_dml.sql
 show errors
+prompt -- PCK_KML_ZIP
+@@packages/pck_kml_zip.sql
+show errors
 prompt -- PCK_KML_KMZ
 @@packages/pck_kml_kmz.sql
 show errors

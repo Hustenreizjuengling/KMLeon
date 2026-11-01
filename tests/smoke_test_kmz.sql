@@ -11,16 +11,8 @@ declare
   l_job number;
   l_a   number;
   l_kmz blob;
-  l_zip pls_integer;
+  l_doc blob;
 begin
-  -- optional component: KMZ needs APEX_ZIP; without APEX report and count as passed
-  select count(*) into l_zip from all_objects where object_name = 'APEX_ZIP' and object_type = 'SYNONYM';
-  if l_zip = 0 then
-    dbms_output.put_line('kmz smoke test SKIPPED (APEX_ZIP not available -- KMZ output needs APEX)');
-    begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_kmz')]'; exception when others then null; end;
-    return;
-  end if;
-
   l_job := pck_kml_job_api.create_job(
              p_document_name => 'KMZ smoke test',
              p_output_format => 'KMZ');
@@ -45,6 +37,11 @@ begin
     raise_application_error(-20999, 'kmz smoke FAILED: result is not a ZIP archive');
   end if;
   dbms_output.put_line('kmz size    : ' || dbms_lob.getlength(l_kmz) || ' bytes (ZIP magic OK)');
+  l_doc := pck_kml_zip.get_file(l_kmz, 'doc.kml');
+  if l_doc is null or dbms_lob.instr(l_doc, utl_raw.cast_to_raw('<name>Berlin</name>')) = 0 then
+    raise_application_error(-20999, 'kmz smoke FAILED: doc.kml missing or does not contain the placemark');
+  end if;
+  dbms_output.put_line('doc.kml     : ' || dbms_lob.getlength(l_doc) || ' bytes, placemark present (pure PL/SQL zip)');
 
   pck_kml_jobs_dml.del(l_job);   -- cleanup
   commit;

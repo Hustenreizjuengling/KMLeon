@@ -10,7 +10,7 @@ go through the DML packages** — never INSERT/UPDATE/DELETE the tables directly
 | `KML_CONFIG` | `PCK_KML_CONFIG_DML` |
 | `KML_LOG` | `PCK_KML_LOG` |
 
-(`PCK_KML_GEOM` — geometry conversion — owns no table.)
+(`PCK_KML_GEOM` — geometry conversion — and `PCK_KML_ZIP` — ZIP writer — own no table.)
 
 Every table ends with the audit columns `created_at`, `created_by`, `updated_at`,
 `updated_by`, auto-stamped by the DML package when passed NULL.
@@ -128,6 +128,7 @@ exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
 | `NOTIFY_FROM` | SETTING | STRING | — | Sender address for `APEX_MAIL`. |
 | `NOTIFY_APEX_WORKSPACE` | SETTING | STRING | — | Workspace to bootstrap for `APEX_MAIL` outside an APEX session. |
 | `STYLE_HIGHLIGHT_SCALE` | SETTING | NUMBER | — | `> 0` adds scaled highlight styles + `<StyleMap>`s. |
+| `KMZ_ENGINE` | SETTING | STRING | `INTERNAL` | ZIP writer for KMZ: `INTERNAL` (`PCK_KML_ZIP`, pure PL/SQL) or `APEX` (`APEX_ZIP`). |
 | `CLEANUP_ENABLED` | SETTING | BOOLEAN | `N` | Master switch for the scheduled cleanup job. |
 | `CLEANUP_INTERVAL` | SETTING | STRING | `FREQ=DAILY;BYHOUR=3` | DBMS_SCHEDULER calendar for how often cleanup runs. |
 | `CLEANUP_RETENTION_DAYS` | SETTING | NUMBER | `30` | Only jobs finished older than this are eligible. |
@@ -281,7 +282,8 @@ logged but nothing is sent — the job is unaffected. Notifications fire on both
   into the geometry output. They affect **3D viewers only** (Google Earth, Cesium);
   2D viewers ignore them, and `altitude_mode`/`extrude` need Z-bearing geometry to
   be meaningful. `GEOMETRY_KML` passthrough is left untouched (caller-controlled).
-- **KMZ**: relies on `APEX_ZIP` (assumed available; a pure-PL/SQL fallback was
-  intentionally dropped). Without it, `KML` output still works and KMZ jobs fail clearly.
+- **KMZ**: written by `PCK_KML_ZIP` (pure PL/SQL, DEFLATE via `UTL_COMPRESS`); no ZIP64,
+  i.e. archives stay below 4 GB — far beyond any KMZ. `KMZ_ENGINE = APEX` switches to
+  `APEX_ZIP` if preferred.
 - **ExtendedData**: values read as strings via `JSON_OBJECT_T`; malformed JSON
   silently omits the block.

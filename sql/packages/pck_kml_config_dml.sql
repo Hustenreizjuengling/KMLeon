@@ -252,6 +252,8 @@ as
          'Sender address for NOTIFY_SENDER = APEX_MAIL (required by APEX_MAIL.SEND).');
     seed('NOTIFY_APEX_WORKSPACE',      'SETTING', 'STRING',  null, null, null,
          'APEX workspace whose mail settings APEX_MAIL uses when no APEX session exists (scheduler / REST runs).');
+    seed('KMZ_ENGINE',                 'SETTING', 'STRING',  'INTERNAL', null, null,
+         'ZIP writer for KMZ output: INTERNAL (PCK_KML_ZIP, pure PL/SQL, default) or APEX (APEX_ZIP, needs APEX).');
     seed('STYLE_HIGHLIGHT_SCALE',      'SETTING', 'NUMBER',  null, null, null,
          'When > 0 (e.g. 1.3) every shared style gets a highlight variant scaled by this factor plus a <StyleMap> (hover effect in Google Earth). NULL = plain styles.');
 

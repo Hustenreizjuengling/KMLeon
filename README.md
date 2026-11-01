@@ -37,9 +37,10 @@
 ## Why KMLeon
 
 - **Pure PL/SQL, no moving parts.** Nothing to deploy outside the database — jobs are
-  drained by a `DBMS_SCHEDULER` dispatcher (or run synchronously). **No Oracle JVM
-  needed:** KML geometry is written by `PCK_KML_GEOM` in plain PL/SQL, so KMLeon runs
-  on databases without the OJVM component (e.g. Oracle Database Free container images).
+  drained by a `DBMS_SCHEDULER` dispatcher (or run synchronously). **No Oracle JVM, no
+  APEX needed by the engine:** KML geometry is written by `PCK_KML_GEOM` and the KMZ
+  archive by `PCK_KML_ZIP`, both plain PL/SQL, so KMLeon runs on any 19c+ database with
+  Spatial/Locator (e.g. Oracle Database Free container images without OJVM).
 - **Generic.** KMLeon knows nothing about your domain. You supply geometries + metadata;
   it produces standards-compliant KML/KMZ.
 - **Three ways to feed it, one render core:**
@@ -49,8 +50,7 @@
   - **GeoJSON** — push a FeatureCollection from outside (e.g. APEX REST).
 - **Rich, standards-compliant KML.** Shared `<Style>` definitions (deduped to `styleUrl`),
   optional `<StyleMap>` highlight styles, nested `<Folder>` hierarchies from `/`-separated
-  paths, per-feature styling, and 3D (`altitudeMode` / `extrude` / `tessellate`). KMZ via
-  `APEX_ZIP`.
+  paths, per-feature styling, and 3D (`altitudeMode` / `extrude` / `tessellate`). KMZ via the built-in pure PL/SQL ZIP writer.
 - **Variable metadata per feature** — `name`, `description` (HTML balloon), and any extra
   attributes become `<ExtendedData>` automatically.
 - **Run it your way.** Synchronous (`run_now`), fire-and-forget in its own one-shot
@@ -76,7 +76,7 @@
                              ▼
                     PCK_KML_ENGINE.run_job ───────► result_kml (CLOB)
                        ├─ PCK_KML_GEOM: SDO / GeoJSON → KML    or
-                       ├─ PCK_KML_KMZ.zip_kml ──────► result_kmz (BLOB)
+                       ├─ PCK_KML_KMZ (PCK_KML_ZIP) ─► result_kmz (BLOB)
                        ├─ PCK_KML_NOTIFY ──────────► completion e-mail (best-effort)
                        └─ free assets (DELETE_ASSETS_AFTER_SUCCESS) + stamp metrics
 
@@ -101,7 +101,8 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 | `KML_LOG` | central log (`PCK_KML_LOG`) |
 | `PCK_KML_ENGINE` | the generic generator: assembly, styling, folders, execution, dispatcher |
 | `PCK_KML_GEOM` | pure PL/SQL `SDO_GEOMETRY` → KML geometry (no OJVM); GeoJSON in (geometry / Feature / FeatureCollection); transforms non-WGS84 SRIDs to lon/lat, densifies arcs |
-| `PCK_KML_KMZ` | KMZ zipping (isolated `APEX_ZIP` dependency) |
+| `PCK_KML_KMZ` | KMZ packaging (`doc.kml` into a ZIP) |
+| `PCK_KML_ZIP` | pure PL/SQL ZIP writer/reader (DEFLATE via `UTL_COMPRESS`, UTF-8 names); optional `APEX_ZIP` via `KMZ_ENGINE = APEX` |
 | `PCK_KML_NOTIFY` | completion e-mail (file attached); generic, with `resolve_recipient` / `send_mail` hooks |
 | `PCK_KML_MAINTENANCE` | config-driven cleanup of old jobs + its scheduler job |
 | `PCK_KML_JOB_API` | optional convenience wrapper |
@@ -117,10 +118,11 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
   **Oracle JVM is not required** — KML geometry is serialized by `PCK_KML_GEOM` in pure
   PL/SQL instead of the Java-based `SDO_UTIL.TO_KMLGEOMETRY` (which raises `ORA-29538`
   on databases without OJVM, such as the Oracle Database Free container images).
+- **No APEX, no Oracle JVM** for the engine. KMZ is produced by `PCK_KML_ZIP` on top of
+  `UTL_COMPRESS` (available in every edition). APEX is needed only for the optional
+  toolkit app (and `APEX_MAIL` if you choose it as notification sender).
 - Optional: `DBMS_CRYPTO` execute grant for strong `access_key` tokens, `CREATE JOB` for
   `run_async` / the scheduler jobs.
-- **APEX_ZIP** (ships with Oracle APEX) — only for `KMZ` output. Without it, `KML` still
-  works and KMZ jobs fail with a clear message.
 
 ## Install
 
@@ -171,8 +173,8 @@ Semantic versioning. The release number lives in [`VERSION`](VERSION),
 
 `tests/run_all.sql` runs every smoke test and prints a PASS/FAIL summary (non-zero exit
 code on failure — CI friendly). Each script also runs standalone. Tests that need an
-optional component (APEX for KMZ, the toolkit app for editor links) skip cleanly when it
-is absent. `tests/rest_smoke.sh <base-url> [client_id client_secret]` exercises the
+optional component (the toolkit app for editor links, `TEST_ALLOW_MAIL` for a real
+`APEX_MAIL` queue check) skip cleanly when it is absent. `tests/rest_smoke.sh <base-url> [client_id client_secret]` exercises the
 deployed REST module with curl/jq, optionally through the OAuth2 protection.
 
 ## Usage
@@ -438,7 +440,6 @@ See [`docs/data-model.md`](docs/data-model.md) for the full column reference and
 ## Roadmap
 
 - A utPLSQL test suite (the smoke tests already assert hard and run via `tests/run_all.sql`).
-- Optional pure-PL/SQL ZIP so KMZ works without `APEX_ZIP`.
 
 ## License
 

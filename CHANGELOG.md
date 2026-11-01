@@ -10,6 +10,26 @@ reports it, and `tests/smoke_test_version.sql` fails when the stamp is stale.
 
 ## [Unreleased]
 
+## [1.2.0] – 2026-11-01
+
+In-place update: `sql/update.sql`, re-import `apex_toolkit/` (version attribute). No
+table changes; the new setting `KMZ_ENGINE` defaults to the internal writer.
+
+### Added
+- **`PCK_KML_ZIP` – pure PL/SQL ZIP writer/reader.** KMZ no longer needs `APEX_ZIP`:
+  entries are DEFLATE-compressed with `UTL_COMPRESS` (kernel zlib, every edition, no
+  Java), the CRC-32 comes from the gzip trailer, names are UTF-8, the central directory
+  is rebuilt from the local headers in `finish()`. `file_list` / `get_file` read archives
+  back (used by the tests). Output verified with `unzip -t` and Python `zipfile`.
+- Setting `KMZ_ENGINE` = `INTERNAL` (default) | `APEX` (`APEX_ZIP`, bound dynamically).
+- `tests/smoke_test_zip.sql` (12 checks); `smoke_test_kmz` now reads `doc.kml` back and
+  no longer skips without APEX.
+
+### Changed
+- **Requirements:** the engine needs neither the Oracle JVM nor APEX any more – only
+  Oracle 19c+ with Spatial/Locator. APEX is required solely for the optional toolkit app.
+- `PCK_KML_KMZ` has no compile-time dependency on APEX.
+
 ## [1.1.0] – 2026-11-01
 
 In-place update: run `sql/update.sql` as the KMLeon schema, re-import

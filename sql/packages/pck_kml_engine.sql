@@ -32,7 +32,7 @@ as
   -- KMLeon release (semantic versioning). Single source of truth for the code;
   -- install.sql / update.sql stamp it into KML_CONFIG (KMLEON_VERSION) and the
   -- REST module exposes it under GET version. Keep in sync with /VERSION.
-  gc_version constant varchar2(20) := '1.1.0';
+  gc_version constant varchar2(20) := '1.2.0';
   function version return varchar2;
 
   -- Convert geometry (SDO or GeoJSON) into a KML geometry fragment, optionally
