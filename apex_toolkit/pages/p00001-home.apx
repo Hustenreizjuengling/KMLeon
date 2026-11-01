@@ -229,7 +229,7 @@ page 1 (
                 -- centre + zoom from the extent of the displayed assets (same job rule as the
                 -- layers); falls back to Germany when the job has no assets
                 with g as (
-                  select pck_kml_geom.from_geojson(nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo))) as geom
+                  select pck_kml_geom.to_sdo_wgs84(geometry_sdo, geometry_geojson) as geom
                     from kml_job_assets
                    where job_id = nvl(to_number(:P1_JOB_ID), (select max(job_id) from kml_job_assets))
                 ), m as (
@@ -274,7 +274,7 @@ page 1 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets
                      where job_id = nvl(to_number(:P1_JOB_ID),
                                         -- no selection: the newest job that still has assets (completed
@@ -315,7 +315,7 @@ page 1 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets
                      where job_id = nvl(to_number(:P1_JOB_ID),
                                         -- no selection: the newest job that still has assets (completed
@@ -357,7 +357,7 @@ page 1 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets
                      where job_id = nvl(to_number(:P1_JOB_ID),
                                         -- no selection: the newest job that still has assets (completed

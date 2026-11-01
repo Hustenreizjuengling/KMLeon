@@ -356,7 +356,7 @@ page 11 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets
                      where job_id = to_number(:P11_JOB_ID)
                     ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
@@ -394,7 +394,7 @@ page 11 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets
                      where job_id = to_number(:P11_JOB_ID)
                     ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
@@ -433,7 +433,7 @@ page 11 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets
                      where job_id = to_number(:P11_JOB_ID)
                     ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
@@ -1545,6 +1545,8 @@ page 11 (
                 plsqlCode:
                     ```plsql
                     declare
+                      l_keep_desc kml_job_assets.description%type;
+                      l_keep_vis  kml_job_assets.visibility%type;
                       l_job number := to_number(:P11_JOB_ID);
                       l_a   number;
                       l_line  varchar2(8) := case when :P11_LINE_COLOR  is not null then pck_kml_engine.rgba_to_kml(ltrim(:P11_LINE_COLOR,'#')) end;
@@ -1556,8 +1558,14 @@ page 11 (
                       end if;
                       if :P11_ASSET_ID is not null then
                         -- update the selected asset in place
+                        -- the editor has no description / visibility fields: keep the stored values
+                        -- (upd() clears description when passed NULL and resets visibility to Y)
+                        select description, visibility into l_keep_desc, l_keep_vis
+                          from kml_job_assets where asset_id = to_number(:P11_ASSET_ID);
                         pck_kml_job_assets_dml.upd(
                           p_asset_id         => to_number(:P11_ASSET_ID),
+                          p_description      => l_keep_desc,
+                          p_visibility       => l_keep_vis,
                           p_geometry_geojson => to_clob(:P11_GEOJSON),
                           p_name             => :P11_NAME,
                           p_folder_name      => :P11_FOLDER,
@@ -1819,7 +1827,7 @@ page 11 (
                         :P11_EXT_DATA     := null;
                       else
                         select * into l_a from kml_job_assets where asset_id = to_number(:P11_ASSET_ID);
-                        :P11_GEOJSON      := nvl(l_a.geometry_geojson, sdo_util.to_geojson(l_a.geometry_sdo));
+                        :P11_GEOJSON      := pck_kml_geom.map_geojson(l_a.geometry_sdo, l_a.geometry_geojson);
                         :P11_NAME         := l_a.name;
                         :P11_FOLDER       := l_a.folder_name;
                         :P11_LINE_COLOR   := nvl(pck_kmleon_tools.kml_to_rgb(l_a.line_color), '#3388ff');

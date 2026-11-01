@@ -120,8 +120,10 @@ page 110 (
                        access_key,
                        'Open editor' as open_link
                   from kml_jobs
-                 where user_id  = :P110_USER_ID
-                   and user_tab = :P110_USER_TAB
+                 where :APP_USER not in ('nobody', 'APEX_PUBLIC_USER')          -- anonymous: nothing
+                   -- own jobs only; the filter fields are honoured for IST_ADMIN only
+                   and user_id  = case when apex_authorization.is_authorized('IST_ADMIN') then :P110_USER_ID else :APP_USER end
+                   and user_tab = case when apex_authorization.is_authorized('IST_ADMIN') then :P110_USER_TAB else 'APP_USER' end
                  order by job_id desc
                 ```
             pageItemsToSubmit: P110_USER_ID,P110_USER_TAB

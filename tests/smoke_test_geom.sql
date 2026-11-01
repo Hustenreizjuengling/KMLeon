@@ -110,6 +110,32 @@ begin
   ok('UTM 32N transformed to WGS84', l_got like '<Point><coordinates>7.39354%,52.5191%</coordinates></Point>', dbms_lob.substr(l_got, 300, 1));
   l_got := pck_kml_geom.to_kml(sdo_geometry(2001, 25832, sdo_point_type(391000, 5820000, null), null, null), p_transform => false);
   ok('transform can be switched off', l_got = '<Point><coordinates>391000,5820000</coordinates></Point>', dbms_lob.substr(l_got, 300, 1));
+  begin
+    l_got := pck_kml_geom.to_kml(sdo_geometry(2001, 999999, sdo_point_type(1, 2, null), null, null));
+    raise_application_error(-20999, 'geom smoke FAILED: unknown SRID was emitted as lon/lat');
+  exception when others then
+    if sqlcode != -20831 then raise; end if;
+  end;
+  l_n := l_n + 1;
+  dbms_output.put_line('OK   untransformable SRID rejected with -20831 (never silently wrong coordinates)');
+  l_got := pck_kml_geom.to_kml(sdo_geometry(2004, 4326, null, sdo_elem_info_array(1, 1, 1, 3, 2, 1), sdo_ordinate_array(1, 2, 3, 4, 5, 6)),
+                               p_point_tags => '<extrude>1</extrude>', p_line_tags => '<tessellate>1</tessellate>');
+  ok('placement tags inserted by the serializer',
+     l_got = '<MultiGeometry><Point><extrude>1</extrude><coordinates>1,2</coordinates></Point>'
+          || '<LineString><tessellate>1</tessellate><coordinates>3,4 5,6</coordinates></LineString></MultiGeometry>',
+     dbms_lob.substr(l_got, 300, 1));
+  -- a projected optimized rectangle must be expanded to its ring BEFORE the transform,
+  -- i.e. render exactly like the explicit 5-point ring in the same projection
+  l_got := pck_kml_geom.to_kml(sdo_geometry(2003, 25832, null, sdo_elem_info_array(1, 1003, 3),
+                                            sdo_ordinate_array(391000, 5820000, 392000, 5821000)));
+  ok('projected rectangle expanded before transform',
+     dbms_lob.compare(l_got, pck_kml_geom.to_kml(sdo_geometry(2003, 25832, null, sdo_elem_info_array(1, 1003, 1),
+       sdo_ordinate_array(391000, 5820000, 392000, 5820000, 392000, 5821000, 391000, 5821000, 391000, 5820000)))) = 0
+     and l_got like '<Polygon><outerBoundaryIs><LinearRing><coordinates>7.39%', dbms_lob.substr(l_got, 300, 1));
+  ok('map_geojson: SDO in UTM -> WGS84 GeoJSON', pck_kml_geom.map_geojson(sdo_geometry(2001, 25832, sdo_point_type(391000, 5820000, null), null, null), null) like '%7.3935%52.519%');
+  ok('map_geojson: Feature unwrapped', pck_kml_geom.map_geojson(null, '{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{}}') like '%"Point"%');
+  ok('map_geojson: garbage -> null', pck_kml_geom.map_geojson(null, '{not json') is null);
+  ok('to_sdo_wgs84: GeoJSON -> SDO 4326', pck_kml_geom.to_sdo_wgs84(null, '{"type":"Point","coordinates":[13.4,52.5]}').sdo_srid = 4326);
 
   --- GeoJSON input ---------------------------------------------------------------
   eq('geojson bare geometry', pck_kml_geom.from_geojson('{"type":"Point","coordinates":[13.405,52.52]}'),

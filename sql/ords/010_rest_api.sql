@@ -148,10 +148,17 @@ begin
           end;
         end if;
       exception
-        when others then        -- malformed JSON body etc.
-          :status_code := 400;
-          owa_util.mime_header('application/json');
-          htp.p('{"error":"invalid request body"}');
+        when others then
+          -- client errors only: malformed JSON (-40441), JSON type mismatch (-40xxx),
+          -- value/number conversion, KMLeon validation (-208xx); anything else is a
+          -- server fault and must surface as 500 with its real cause
+          if sqlcode in (-1722, -6502) or sqlcode between -40999 and -40000 or sqlcode between -20899 and -20800 then
+            :status_code := 400;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"invalid request body"}');
+          else
+            raise;
+          end if;
       end;
     ~');
 
@@ -260,7 +267,7 @@ begin
         l_n := pck_kml_job_api.add_features_geojson(to_number(:id), :body_text);
         commit;
         owa_util.mime_header('application/json');
-        htp.p('{"job_id":' || :id || ',"features_added":' || l_n || '}');
+        htp.p('{"job_id":' || to_number(:id) || ',"features_added":' || l_n || '}');
       exception
         when others then
           if sqlcode in (-2291, -20813) then        -- job not found (FK / lookup)
@@ -288,7 +295,7 @@ begin
       begin
         pck_kml_job_api.submit_job(to_number(:id));
         owa_util.mime_header('application/json');
-        htp.p('{"job_id":' || :id || ',"status":"PENDING"}');
+        htp.p('{"job_id":' || to_number(:id) || ',"status":"PENDING"}');
       exception
         when others then
           if sqlcode = -20810 then            -- not in DRAFT state
@@ -323,7 +330,7 @@ begin
         pck_kml_job_api.run_now(to_number(:id));
         l_status := pck_kml_job_api.get_status(to_number(:id));
         owa_util.mime_header('application/json');
-        htp.p('{"job_id":' || :id || ',"status":"' || l_status || '"}');
+        htp.p('{"job_id":' || to_number(:id) || ',"status":"' || l_status || '"}');
       exception
         when others then
           if sqlcode = -20813 then            -- job not found
@@ -351,7 +358,7 @@ begin
       begin
         pck_kml_job_api.cancel_job(to_number(:id));
         owa_util.mime_header('application/json');
-        htp.p('{"job_id":' || :id || ',"status":"CANCELLED"}');
+        htp.p('{"job_id":' || to_number(:id) || ',"status":"CANCELLED"}');
       exception
         when others then
           if sqlcode = -20813 then            -- job not found

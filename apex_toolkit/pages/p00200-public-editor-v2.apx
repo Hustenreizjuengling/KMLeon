@@ -638,7 +638,7 @@ page 200 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets a
                      where a.job_id = to_number(:P200_JOB_ID)
                        and exists (select 1 from kml_jobs j
@@ -679,7 +679,7 @@ page 200 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets a
                      where a.job_id = to_number(:P200_JOB_ID)
                        and exists (select 1 from kml_jobs j
@@ -721,7 +721,7 @@ page 200 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets a
                      where a.job_id = to_number(:P200_JOB_ID)
                        and exists (select 1 from kml_jobs j
@@ -915,7 +915,7 @@ page 200 (
                   end;
                   apex_json.open_object;
                   apex_json.write('asset_id', l_a.asset_id);
-                  apex_json.write('geojson', nvl(l_a.geometry_geojson, sdo_util.to_geojson(l_a.geometry_sdo)));
+                  apex_json.write('geojson', pck_kml_geom.map_geojson(l_a.geometry_sdo, l_a.geometry_geojson));
                   apex_json.write('name', l_a.name);
                   apex_json.write('folder', l_a.folder_name);
                   apex_json.write('line_color', nvl(pck_kmleon_tools.kml_to_rgb(l_a.line_color), '#3388ff'));
@@ -949,6 +949,8 @@ page 200 (
             plsqlCode:
                 ```plsql
                 declare
+                  l_keep_desc kml_job_assets.description%type;
+                  l_keep_vis  kml_job_assets.visibility%type;
                   l_job  number := to_number(:P200_JOB_ID);
                   l_n    number;
                   l_aid  number := json_value(:P200_PAYLOAD, '$.asset_id' returning number);
@@ -974,8 +976,14 @@ page 200 (
                     if l_n = 0 then
                       raise_application_error(-20901, 'Feature does not belong to this job.');
                     end if;
+                    -- the editor has no description / visibility fields: keep the stored values
+                    -- (upd() clears description when passed NULL and resets visibility to Y)
+                    select description, visibility into l_keep_desc, l_keep_vis
+                      from kml_job_assets where asset_id = l_aid;
                     pck_kml_job_assets_dml.upd(
                       p_asset_id         => l_aid,
+                      p_description      => l_keep_desc,
+                      p_visibility       => l_keep_vis,
                       p_geometry_geojson => l_gj,
                       p_name             => json_value(:P200_PAYLOAD, '$.name'),
                       p_folder_name      => json_value(:P200_PAYLOAD, '$.folder'),

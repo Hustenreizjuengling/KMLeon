@@ -567,7 +567,7 @@ page 100 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets a
                      where a.job_id = to_number(:P100_JOB_ID)
                        and exists (select 1 from kml_jobs j
@@ -608,7 +608,7 @@ page 100 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets a
                      where a.job_id = to_number(:P100_JOB_ID)
                        and exists (select 1 from kml_jobs j
@@ -650,7 +650,7 @@ page 100 (
                     select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets a
                      where a.job_id = to_number(:P100_JOB_ID)
                        and exists (select 1 from kml_jobs j
@@ -1469,6 +1469,8 @@ page 100 (
                 plsqlCode:
                     ```plsql
                     declare
+                      l_keep_desc kml_job_assets.description%type;
+                      l_keep_vis  kml_job_assets.visibility%type;
                       l_job   number := to_number(:P100_JOB_ID);
                       l_n     number;
                       l_a     number;
@@ -1493,8 +1495,14 @@ page 100 (
                         if l_n = 0 then
                           raise_application_error(-20901, 'Feature does not belong to this job.');
                         end if;
+                        -- the editor has no description / visibility fields: keep the stored values
+                        -- (upd() clears description when passed NULL and resets visibility to Y)
+                        select description, visibility into l_keep_desc, l_keep_vis
+                          from kml_job_assets where asset_id = to_number(:P100_ASSET_ID);
                         pck_kml_job_assets_dml.upd(
                           p_asset_id         => to_number(:P100_ASSET_ID),
+                          p_description      => l_keep_desc,
+                          p_visibility       => l_keep_vis,
                           p_geometry_geojson => to_clob(:P100_GEOJSON),
                           p_name             => :P100_NAME,
                           p_folder_name      => :P100_FOLDER,
@@ -1663,7 +1671,7 @@ page 100 (
                           when no_data_found then
                             raise_application_error(-20901, 'Feature does not belong to this job.');
                         end;
-                        :P100_GEOJSON      := nvl(l_a.geometry_geojson, sdo_util.to_geojson(l_a.geometry_sdo));
+                        :P100_GEOJSON      := pck_kml_geom.map_geojson(l_a.geometry_sdo, l_a.geometry_geojson);
                         :P100_NAME         := l_a.name;
                         :P100_FOLDER       := l_a.folder_name;
                         :P100_LINE_COLOR   := nvl(pck_kmleon_tools.kml_to_rgb(l_a.line_color), '#3388ff');

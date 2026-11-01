@@ -18,6 +18,7 @@
 --   Tokens expire (default 3600 s); request a new one when you get 401.
 --
 -- Rotate the secret:  exec oauth.update_client_secret('kmleon_client'); commit;
+-- Re-running this script keeps an existing client and its secret.
 -- Undo everything:    see the bottom of this file.
 -- Use HTTPS in front of ORDS -- the token travels in a header.
 --------------------------------------------------------------------------------
@@ -28,6 +29,7 @@ set serveroutput on
 declare
   l_roles    owa.vc_arr;
   l_patterns owa.vc_arr;
+  l_n        pls_integer;
 begin
   -- 1. role (ignore "already exists")
   begin
@@ -46,21 +48,23 @@ begin
     p_label          => 'KMLeon API',
     p_description    => 'Access to the KMLeon REST API (kmleon.v1)');
 
-  -- 3. OAuth2 client with the role (recreate so the script is re-runnable)
-  begin
-    oauth.delete_client(p_name => 'kmleon_client');
-  exception when others then null;
-  end;
-  oauth.create_client(
-    p_name            => 'kmleon_client',
-    p_grant_type      => 'client_credentials',
-    p_owner           => 'KMLeon',
-    p_description     => 'Machine client for the KMLeon REST API',
-    p_support_email   => 'kmleon@example.com',
-    p_privilege_names => 'kmleon.access');
-  oauth.grant_client_role(p_client_name => 'kmleon_client', p_role_name => 'KMLeon User');
+  -- 3. OAuth2 client with the role -- created only when absent, so re-running
+  --    (e.g. as part of an upgrade) never rotates a secret integrations rely on
+  select count(*) into l_n from user_ords_clients where name = 'kmleon_client';
+  if l_n = 0 then
+    oauth.create_client(
+      p_name            => 'kmleon_client',
+      p_grant_type      => 'client_credentials',
+      p_owner           => 'KMLeon',
+      p_description     => 'Machine client for the KMLeon REST API',
+      p_support_email   => 'kmleon@example.com',
+      p_privilege_names => 'kmleon.access');
+    oauth.grant_client_role(p_client_name => 'kmleon_client', p_role_name => 'KMLeon User');
+    dbms_output.put_line('kmleon.v1 is now protected; client "kmleon_client" created.');
+  else
+    dbms_output.put_line('kmleon.v1 is protected; existing client "kmleon_client" kept (secret unchanged).');
+  end if;
   commit;
-  dbms_output.put_line('kmleon.v1 is now protected; client "kmleon_client" created.');
 end;
 /
 

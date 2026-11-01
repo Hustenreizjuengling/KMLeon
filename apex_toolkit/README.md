@@ -92,7 +92,10 @@ format/version matches APEX 26.1 exactly.
   non-checksum setting — that is intentional for this deliberately public, token-gated page.)
 - **110 My maps** (native base) — a **public** landing page (the app's **home page**) that
   lists a user's jobs from a **plain native classic report** filtered by **User id** + **User
-  tab** (both editable; default to `&APP_USER.` / `APP_USER`). A declarative **Open editor**
+  tab** (both editable; default to `&APP_USER.` / `APP_USER`). Access rule (shared with page
+  210): anonymous sessions see nothing, a signed-in user sees only their own jobs
+  (`user_tab = 'APP_USER'`, `user_id = APP_USER`), and the filter fields are honoured for
+  `IST_ADMIN` members only — so no user can obtain another user's `access_key`. A declarative **Open editor**
   link column targets the classic editor (page 100) with `P100_JOB_ID` + `P100_ACCESS_KEY` so
   APEX builds the URL with the right checksum. All job-creating pages tag new jobs with
   `user_tab => 'APP_USER'`, `user_id => v('APP_USER')` so they show up here. This page is kept
@@ -233,10 +236,10 @@ target column type requires it.
   ```
 - **App Builder**: zip the app folder and import the zip (App Builder ▸ Import).
 
-Then install the helper package and a few sample jobs:
+Then install the helper package (and, on a demo instance, a few sample jobs):
 ```sql
-@apex_toolkit/setup.sql
+@apex_toolkit/setup.sql            -- PCK_KMLEON_TOOLS (page helpers); safe on production
+@apex_toolkit/setup_samples.sql    -- optional: three demo jobs (dev/demo only)
 ```
-This creates `PCK_KMLEON_TOOLS` (the page helpers) and seeds a few sample jobs via
-`PCK_KML_JOB_API` so the reports have data immediately. Requires the **CREATE JOB**
-privilege for the Async playground (`run_async`) and the cleanup scheduler.
+Requires the **CREATE JOB** privilege for the Async playground (`run_async`) and
+the cleanup scheduler.

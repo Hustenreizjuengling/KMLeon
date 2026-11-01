@@ -27,18 +27,24 @@ create or replace package pck_kml_geom
   authid definer
 as
   -- Serialize an SDO_GEOMETRY as a KML geometry fragment. NULL in -> NULL out.
-  -- p_transform : transform to WGS84 when the SRID is not already lon/lat WGS84
-  --               (best-effort: when the transformation fails the coordinates
-  --               are emitted as they are).
+  -- p_transform : transform to WGS84 when the SRID is not already lon/lat WGS84.
+  --               A transformation that fails raises -20831 (never silently
+  --               emits projected ordinates as lon/lat).
   -- p_tolerance / p_arc_tolerance : passed to SDO_GEOM.SDO_ARC_DENSIFY when the
-  --               geometry contains arcs (units of the geometry's SRS; Oracle
-  --               requires arc_tolerance > tolerance).
+  --               geometry contains arcs / optimized rectangles (units of the
+  --               geometry's SRS; Oracle requires arc_tolerance > tolerance).
+  -- p_point_tags / p_line_tags : XML inserted right after every <Point> resp.
+  --               <LineString>/<Polygon> opening tag (KML placement tags such as
+  --               <extrude>/<altitudeMode>; KML requires them before the
+  --               coordinates). Lets the caller avoid post-processing the CLOB.
   -- Raises -20830 for geometry types KML cannot express (solids, unknown etypes).
   function to_kml(
     p_geom          in sdo_geometry,
-    p_transform     in boolean default true,
-    p_tolerance     in number  default 0.005,
-    p_arc_tolerance in number  default 0.05
+    p_transform     in boolean  default true,
+    p_tolerance     in number   default 0.005,
+    p_arc_tolerance in number   default 0.05,
+    p_point_tags    in varchar2 default null,
+    p_line_tags     in varchar2 default null
   ) return clob;
 
   -- GeoJSON text -> SDO_GEOMETRY via SDO_UTIL.FROM_GEOJSON, accepting what the
@@ -50,8 +56,17 @@ as
   -- TRUE when the SRID is a lon/lat WGS84 system KML can take unchanged.
   function is_wgs84(p_srid in number) return boolean;
 
+  -- Map helpers (SQL-callable, NULL on any error -- a single bad geometry must
+  -- not break a map region or an extent query):
+  --   to_sdo_wgs84 : the asset's geometry (SDO preferred, else GeoJSON geometry /
+  --                  Feature / FeatureCollection) as SDO_GEOMETRY in WGS84.
+  --   map_geojson  : the same as a GeoJSON *geometry* string (what map layers eat).
+  function to_sdo_wgs84(p_sdo in sdo_geometry, p_geojson in clob) return sdo_geometry;
+  function map_geojson(p_sdo in sdo_geometry, p_geojson in clob) return clob;
+
   -- Number -> KML text (NLS-safe, no exponent, no trailing zeros).
   function fmt(p_value in number) return varchar2;
+
 end pck_kml_geom;
 /
 
@@ -137,7 +152,9 @@ as
       if l_et in (c_et_compound, c_et_outer_cmp, c_et_inner_cmp) then
         return true;
       end if;
-      if l_et in (c_et_line, c_et_outer, c_et_inner) and l_ip in (c_ip_arc, c_ip_circle) then
+      -- arcs/circles (KML has straight segments only) and optimized rectangles (two
+      -- corners -- must become a ring BEFORE any coordinate transformation)
+      if l_et in (c_et_line, c_et_outer, c_et_inner) and l_ip in (c_ip_arc, c_ip_rect, c_ip_circle) then
         return true;
       end if;
     end loop;
@@ -147,9 +164,11 @@ as
 
   function to_kml(
     p_geom          in sdo_geometry,
-    p_transform     in boolean default true,
-    p_tolerance     in number  default 0.005,
-    p_arc_tolerance in number  default 0.05
+    p_transform     in boolean  default true,
+    p_tolerance     in number   default 0.005,
+    p_arc_tolerance in number   default 0.05,
+    p_point_tags    in varchar2 default null,
+    p_line_tags     in varchar2 default null
   ) return clob is
     l_g      sdo_geometry := p_geom;
     l_gtype  pls_integer;
@@ -233,13 +252,15 @@ as
       l_g := sdo_geom.sdo_arc_densify(l_g, p_tolerance, 'arc_tolerance=' || fmt(p_arc_tolerance));
     end if;
 
-    -- KML is WGS84 lon/lat: transform anything else (best-effort)
+    -- KML is WGS84 lon/lat: transform anything else. A failure is an error --
+    -- emitting projected ordinates as lon/lat would silently corrupt the map.
     if p_transform and not is_wgs84(l_g.sdo_srid) then
       begin
         l_g := sdo_cs.transform(l_g, 4326);
       exception
         when others then
-          null;   -- keep the source coordinates; the caller may validate/log
+          raise_application_error(-20831,
+            'pck_kml_geom.to_kml: cannot transform SRID ' || l_g.sdo_srid || ' to WGS84: ' || sqlerrm);
       end;
     end if;
 
@@ -293,7 +314,7 @@ as
     end if;
 
     if l_g.sdo_point is not null and l_ntrip = 0 then
-      put(l_out, '<Point><coordinates>' || fmt(l_g.sdo_point.x) || ',' || fmt(l_g.sdo_point.y)
+      put(l_out, '<Point>' || p_point_tags || '<coordinates>' || fmt(l_g.sdo_point.x) || ',' || fmt(l_g.sdo_point.y)
           || case when l_zoff = 2 and l_g.sdo_point.z is not null then ',' || fmt(l_g.sdo_point.z) end
           || '</coordinates></Point>');
     else
@@ -310,20 +331,20 @@ as
             if l_ip > 0 then                 -- interpretation 0 = orientation vector: skip
               l_i := l_off;
               while l_i + 1 <= l_next - 1 loop
-                put(l_out, '<Point><coordinates>' || tuple(l_i) || '</coordinates></Point>');
+                put(l_out, '<Point>' || p_point_tags || '<coordinates>' || tuple(l_i) || '</coordinates></Point>');
                 l_i := l_i + l_dims;
               end loop;
             end if;
 
           elsif l_et = c_et_line then
             close_polygon;
-            put(l_out, '<LineString>');
+            put(l_out, '<LineString>' || p_line_tags);
             coordinates(l_off, l_next, false);
             put(l_out, '</LineString>');
 
           elsif l_et = c_et_outer then
             close_polygon;
-            put(l_out, '<Polygon><outerBoundaryIs><LinearRing>');
+            put(l_out, '<Polygon>' || p_line_tags || '<outerBoundaryIs><LinearRing>');
             if l_ip = c_ip_rect then
               rectangle(l_off, true);
             else
@@ -334,7 +355,7 @@ as
 
           elsif l_et = c_et_inner then
             if not l_in_poly then            -- hole without a shell: tolerate as its own polygon
-              put(l_out, '<Polygon>');
+              put(l_out, '<Polygon>' || p_line_tags);
               l_in_poly := true;
             end if;
             put(l_out, '<innerBoundaryIs><LinearRing>');
@@ -415,6 +436,40 @@ as
       return sdo_util.from_geojson(p_geojson);   -- bare geometry
     end if;
   end from_geojson;
+
+
+  function to_sdo_wgs84(p_sdo in sdo_geometry, p_geojson in clob) return sdo_geometry is
+    l_g sdo_geometry;
+  begin
+    if p_sdo is not null then
+      l_g := p_sdo;
+    elsif p_geojson is not null and dbms_lob.getlength(p_geojson) > 0 then
+      l_g := from_geojson(p_geojson);
+    end if;
+    if l_g is null then
+      return null;
+    end if;
+    if not is_wgs84(l_g.sdo_srid) then
+      l_g := sdo_cs.transform(l_g, 4326);
+    end if;
+    return l_g;
+  exception
+    when others then
+      return null;   -- map helper: a bad geometry is simply not drawn
+  end to_sdo_wgs84;
+
+
+  function map_geojson(p_sdo in sdo_geometry, p_geojson in clob) return clob is
+    l_g sdo_geometry := to_sdo_wgs84(p_sdo, p_geojson);
+  begin
+    if l_g is null then
+      return null;
+    end if;
+    return sdo_util.to_geojson(l_g);
+  exception
+    when others then
+      return null;
+  end map_geojson;
 
 end pck_kml_geom;
 /

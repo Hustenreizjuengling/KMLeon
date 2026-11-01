@@ -179,28 +179,18 @@ as
       return null;
     end if;
 
-    -- Pure PL/SQL serializer (no OJVM): emits only the geometry tags, never
-    -- <extrude>/<tessellate>/<altitudeMode>, so the placement tags injected below
-    -- are the only ones in the output regardless of the database release. Also
-    -- transforms non-WGS84 geometries to lon/lat and densifies arcs.
-    l_kml := pck_kml_geom.to_kml(l_geom);
+    -- Pure PL/SQL serializer (no OJVM): emits only the geometry tags plus the
+    -- placement tags handed in (never its own <extrude>/<tessellate>/<altitudeMode>
+    -- defaults), so the output is identical on every database release. Also
+    -- transforms non-WGS84 geometries to lon/lat and densifies arcs. Inserting the
+    -- tags inside the serializer avoids REPLACE() on the CLOB (each call would
+    -- allocate another temporary LOB per feature).
+    l_kml := pck_kml_geom.to_kml(l_geom, p_point_tags => l_pt, p_line_tags => l_ln);
     if l_kml is null then
       return null;
     end if;
-
-    -- Inject placement tags right after each geometry's opening tag (KML requires
-    -- them before <coordinates>/boundaries). Works for standalone geometries and
-    -- for <MultiGeometry> children alike; <LinearRing>/<MultiGeometry> are skipped
-    -- (they inherit from the enclosing <Polygon> / carry no altitudeMode).
-    if l_pt is not null then
-      l_kml := replace(l_kml, '<Point>', '<Point>' || l_pt);
-    end if;
-    if l_ln is not null then
-      l_kml := replace(l_kml, '<LineString>', '<LineString>' || l_ln);
-      l_kml := replace(l_kml, '<Polygon>',    '<Polygon>'    || l_ln);
-    end if;
-
     return l_kml;
+
   exception
     when others then
       pck_kml_log.warn(c_pkg, 'geometry_to_kml', sqlerrm);
@@ -258,6 +248,21 @@ as
       dbms_lob.append(l_kml, p_clob);
     end if;
   end appc;
+
+  -- Free a per-feature temporary LOB (geometry fragment, ExtendedData block, ...)
+  -- once it has been appended. Session-duration temp LOBs are not released by
+  -- reassigning the variable; in a long-lived session (dispatcher, ORDS pool) a
+  -- big job would otherwise pile up one temp LOB per feature in TEMP.
+  procedure free_tmp(io_lob in out nocopy clob) is
+  begin
+    if io_lob is not null and dbms_lob.istemporary(io_lob) = 1 then
+      dbms_lob.freetemporary(io_lob);
+    end if;
+    io_lob := null;
+  exception
+    when others then
+      io_lob := null;
+  end free_tmp;
 
 
   --==============================================================================
@@ -630,6 +635,7 @@ as
   procedure render_from_assets(l_kml in out nocopy clob, p_job_id in number, p_count out number) is
     l_open t_seg_tab := t_seg_tab();   -- open folder path stack
     l_geom clob;
+    l_ext  clob;
   begin
     p_count := 0;
     for r in (
@@ -643,13 +649,16 @@ as
                                 r.altitude_mode, r.extrude, r.tessellate);
       if l_geom is not null and dbms_lob.getlength(l_geom) > 0 then
         switch_folder(l_kml, l_open, r.folder_name);
-        append_placemark(l_kml, r.name, r.description, build_extended_data(r.extended_data),
+        l_ext := build_extended_data(r.extended_data);
+        append_placemark(l_kml, r.name, r.description, l_ext,
                          build_style(r), l_geom, r.visibility);
         p_count := p_count + 1;
+        free_tmp(l_ext);
       else
         pck_kml_log.warn(c_pkg, 'render_from_assets',
                          'asset ' || r.asset_id || ' skipped (no usable geometry)', p_job_id);
       end if;
+      free_tmp(l_geom);
     end loop;
     close_folders(l_kml, l_open);
   end render_from_assets;
@@ -954,9 +963,16 @@ as
                                               l_poly_color, l_poly_fill, l_poly_outline),
                            l_geom, l_vis);
           p_count := p_count + 1;
+          free_tmp(l_ext_xml);
         else
           pck_kml_log.warn(c_pkg, 'run_query', 'STREAM row skipped (no usable geometry)', p_job.job_id);
         end if;
+        -- release this row's temporary LOBs (geometry fragment, to_clob()-promoted
+        -- values, DBMS_SQL CLOB column values are all temporaries)
+        free_tmp(l_geom);          -- also covers the GEOMETRY_KML passthrough (same locator)
+        l_geom_kml := null;
+        free_tmp(l_geom_geojson);
+        free_tmp(l_descr);
       end if;
     end loop;
 

@@ -7,7 +7,10 @@
 --   * seeds any missing default config rows (existing values are preserved).
 --
 -- Safe to re-run. The "table already exists" error on KML_CONFIG (when it is
--- already present) is expected and ignored (whenever sqlerror continue).
+-- already present) is expected and ignored (whenever sqlerror continue). The
+-- script ends with a hard check: any invalid KMLeon object raises -20999 and
+-- exits the session with a failure code, so a CI step cannot miss a broken
+-- upgrade. It never creates data (demo jobs live in apex_toolkit/setup_samples.sql).
 --
 -- Run from this directory (sql/) as the schema that owns KMLeon, e.g.:
 --   sqlplus kmleon/****@db @update.sql
@@ -124,6 +127,21 @@ select object_name, object_type, status
  order by object_type, object_name;
 
 select value_string as kmleon_version from kml_config where config_key = 'KMLEON_VERSION';
+
+prompt -- hard check: fail loudly (and with a failure exit code) when anything is invalid
+whenever sqlerror exit failure
+declare
+  l_inv pls_integer;
+begin
+  select count(*) into l_inv from user_objects
+   where (object_name like 'KML\_%' escape '\' or object_name like 'PCK\_KML%' escape '\')
+     and status <> 'VALID';
+  if l_inv > 0 then
+    raise_application_error(-20999, 'KMLeon UPDATE INCOMPLETE: ' || l_inv || ' invalid object(s) -- see the status list above');
+  end if;
+end;
+/
+whenever sqlerror continue
 
 prompt
 prompt KMLeon updated.

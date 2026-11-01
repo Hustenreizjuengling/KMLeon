@@ -16,7 +16,39 @@ In-place update: run `sql/update.sql` as the KMLeon schema, re-import
 `apex_toolkit/` (same application id), re-run `sql/ords/010_rest_api.sql`.
 No table changes; all new settings are seeded with behaviour-preserving defaults.
 
+### Security
+- Toolkit landing pages (*My maps* 110 / 210): a signed-in user could list any user's
+  jobs and obtain any job's `access_key` (and with it full edit/download access) by
+  passing another user id; anonymous sessions could enumerate jobs. Both pages now show
+  a user only their own jobs, hand out keys only for their own jobs, show nothing to
+  anonymous sessions and honour the user-id/tab filter for `IST_ADMIN` members only.
+  Error details are no longer echoed to the browser.
+- `IST_ADMIN` has real logic (see *Added*); the REST module can be protected with
+  `020_rest_protect.sql`, and the README now states that this is required before any
+  non-local use.
+
 ### Fixed
+- Public editor v2 / editor pages: saving a feature wiped its `description` and reset
+  `visibility` to `Y` (the editors have no fields for them and `upd()` clears what it
+  is not given); the stored values are now kept.
+- `PCK_KML_GEOM`: a failing coordinate transformation no longer falls back to emitting
+  projected ordinates as lon/lat; it raises `-20831` (the engine logs a WARN and skips
+  the feature). Optimized rectangles are expanded before the transform.
+- Engine: per-feature temporary LOBs (geometry fragment, ExtendedData block, CLOB
+  column values) are freed after use instead of accumulating in TEMP for the session
+  (dispatcher / ORDS pool); placement tags are inserted by the serializer instead of
+  `REPLACE()` on the CLOB.
+- `install.sql` / `update.sql` end with a hard check and exit with a failure code when
+  any KMLeon object is invalid (previously a broken compile still printed "installed").
+- `apex_toolkit/setup.sql` no longer creates sample jobs (moved to `setup_samples.sql`),
+  so the documented upgrade path never creates data or queues demo mails.
+- `020_rest_protect.sql` keeps an existing OAuth client (re-running no longer rotates
+  the secret).
+- REST `POST jobs` reports server faults as 500 instead of masking them as 400; job ids
+  in responses are emitted as numbers.
+- Toolkit maps: layer queries use `PCK_KML_GEOM.map_geojson` (WGS84 GeoJSON geometry
+  for SDO in any SRID and for GeoJSON Feature/FeatureCollection; a malformed geometry
+  is skipped instead of breaking the region); the dashboard extent query is guarded.
 - **Engine ran only with the Oracle JVM.** `SDO_UTIL.TO_KMLGEOMETRY` is Java-based
   and raised `ORA-29538` on databases without OJVM (Oracle Database Free container
   images, minimal installs), so every job failed there. KML geometry is now written
@@ -65,7 +97,10 @@ No table changes; all new settings are seeded with behaviour-preserving defaults
   the group every authenticated user keeps admin access).
 - Tests: `tests/run_all.sql` (pass/fail summary, CI exit code), `tests/rest_smoke.sh`
   (curl/jq, optional OAuth2), new scripts for geometry, large ExtendedData, StyleMap,
-  notifications and the release stamp; optional-component tests skip cleanly.
+  notifications and the release stamp; optional-component tests skip cleanly; the real
+  `APEX_MAIL` queue check is opt-in (`TEST_ALLOW_MAIL`).
+- `PCK_KML_GEOM.to_sdo_wgs84` / `map_geojson` (SQL-callable map helpers, NULL on error)
+  and `to_kml(p_point_tags, p_line_tags)` for caller-supplied placement tags.
 - `install.sql` / `update.sql` recompile dependants (e.g. `PCK_KMLEON_TOOLS`) and
   print the installed version.
 

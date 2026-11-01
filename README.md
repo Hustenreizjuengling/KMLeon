@@ -143,12 +143,18 @@ the key is missing* (your edited values survive), backfills `access_key`, and st
 release into `KML_CONFIG` (`KMLEON_VERSION`, `METRIC_LAST_INSTALL_AT`). Safe to re-run.
 
 ```sql
-sqlplus kmleon/****@db @update.sql           -- engine
+-- all paths relative to the repository root
+@sql/update.sql                              -- engine (prints the installed version)
 -- toolkit app: re-import apex_toolkit/ (same application id -> in-place), then
-@apex_toolkit/setup.sql                      -- helper package (re-runnable)
+@apex_toolkit/setup.sql                      -- helper package only (re-runnable, no data)
 @sql/ords/010_rest_api.sql                   -- REST module (drops + recreates kmleon.v1)
+@sql/ords/020_rest_protect.sql               -- keeps the existing OAuth client / secret
 @tests/run_all.sql                           -- verify: every script must PASS
 ```
+
+`update.sql` ends with a hard check: when any KMLeon object is left invalid it raises
+and exits with a failure code (so a CI/CD step cannot report a broken upgrade as
+success). `apex_toolkit/setup_samples.sql` (demo jobs) is **not** part of the upgrade.
 
 Running jobs are not interrupted: a job claimed by a scheduler session keeps its already
 loaded package state; new runs pick up the new code. See [`CHANGELOG.md`](CHANGELOG.md)
@@ -298,7 +304,11 @@ A **ready-to-run ORDS script** that creates exactly these endpoints (via the ORD
 PL/SQL API — no manual clicking) lives at
 [`sql/ords/010_rest_api.sql`](sql/ords/010_rest_api.sql). Run it in **APEX → SQL
 Workshop → SQL Scripts**. The `QUERY` source is deliberately **not** exposed over
-REST; secure the module before using it (see the script's header).
+REST. **The module is created unprotected and must be protected before any
+non-local use** — `GET jobs` lists every job and `GET jobs/{id}/result` serves any
+completed result by its sequential id: run
+[`sql/ords/020_rest_protect.sql`](sql/ords/020_rest_protect.sql) (ORDS privilege +
+OAuth2 client) right after it.
 </details>
 
 ## Configuration & maintenance
@@ -375,7 +385,9 @@ PL/SQL snippets for integrating KMLeon into your own code. It also includes a
 deep link carrying the job id + its `access_key` (no toolkit login). The app's
 helpers live in `PCK_KMLEON_TOOLS` (created by `setup.sql`). Import it with SQLcl
 (`apex import -input apex_toolkit`) or as a zip via App Builder, then run
-`@apex_toolkit/setup.sql`. See [`apex_toolkit/README.md`](apex_toolkit/README.md).
+`@apex_toolkit/setup.sql` (demo jobs: `setup_samples.sql`). The landing pages show
+a user their own jobs; only `IST_ADMIN` members may look up other users. See
+[`apex_toolkit/README.md`](apex_toolkit/README.md).
 
 ## Feature mapping contract
 

@@ -4,9 +4,10 @@
 -- * prepare(): subject/body/attachment for COMPLETED and FAILED
 -- * NOTIFY_SENDER = NONE: nothing sent, notified_at still stamped, job intact
 -- * NOTIFY_SENDER = APEX_MAIL without NOTIFY_FROM: clean failure, job intact
--- * NOTIFY_SENDER = APEX_MAIL with NOTIFY_FROM (only when APEX is installed):
---   one row more in APEX_MAIL_QUEUE for the recipient (left in the queue; the
---   instance's mail job / an admin purges it -- there is no public delete API)
+-- * NOTIFY_SENDER = APEX_MAIL with NOTIFY_FROM (only when APEX is installed AND
+--   the setting TEST_ALLOW_MAIL = Y opts in): one row more in APEX_MAIL_QUEUE for
+--   the recipient (left in the queue; the instance's mail job / an admin purges
+--   it -- there is no public delete API). Never enable on production.
 -- Settings are restored at the end.
 --------------------------------------------------------------------------------
 set serveroutput on size unlimited
@@ -76,9 +77,14 @@ begin
   pck_kml_jobs_dml.del(l_job);
   commit;
 
-  --- APEX_MAIL real queueing (only with APEX) --------------------------------------
+  --- APEX_MAIL real queueing (only with APEX and when explicitly allowed) ----------
+  -- opt-in: this queues a REAL mail (to kmleon-smoke@example.com) in APEX_MAIL_QUEUE,
+  -- which an instance with SMTP will try to deliver. Enable on test instances with
+  --   exec pck_kml_config_dml.set_boolean('TEST_ALLOW_MAIL', true); commit;
   select count(*) into l_apex from all_objects where object_name = 'APEX_MAIL' and object_type = 'SYNONYM';
-  if l_apex > 0 then
+  if not pck_kml_config_dml.get_boolean('TEST_ALLOW_MAIL', false) then
+    dbms_output.put_line('skip APEX_MAIL queue check (set TEST_ALLOW_MAIL = Y on a test instance to enable)');
+  elsif l_apex > 0 then
     begin
       execute immediate 'select workspace_name from apex_workspace_schemas where schema = user and rownum = 1' into l_ws;
     exception when others then l_ws := null;
