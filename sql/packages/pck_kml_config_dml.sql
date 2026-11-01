@@ -246,6 +246,14 @@ as
          'Minimum severity persisted by PCK_KML_LOG (ERROR/WARN/INFO/DEBUG). Read once per session; new sessions pick changes up.');
     seed('NOTIFY_MAX_ATTACH_BYTES',    'SETTING', 'NUMBER',  null, 10485760, null,
          'Results larger than this are e-mailed without the attachment (PCK_KML_NOTIFY).');
+    seed('NOTIFY_SENDER',              'SETTING', 'STRING',  'NONE', null, null,
+         'How PCK_KML_NOTIFY sends: NONE (prepare + log only, default), APEX_MAIL (queue via APEX_MAIL), CUSTOM (your send_mail hook).');
+    seed('NOTIFY_FROM',                'SETTING', 'STRING',  null, null, null,
+         'Sender address for NOTIFY_SENDER = APEX_MAIL (required by APEX_MAIL.SEND).');
+    seed('NOTIFY_APEX_WORKSPACE',      'SETTING', 'STRING',  null, null, null,
+         'APEX workspace whose mail settings APEX_MAIL uses when no APEX session exists (scheduler / REST runs).');
+    seed('STYLE_HIGHLIGHT_SCALE',      'SETTING', 'NUMBER',  null, null, null,
+         'When > 0 (e.g. 1.3) every shared style gets a highlight variant scaled by this factor plus a <StyleMap> (hover effect in Google Earth). NULL = plain styles.');
 
     --- SETTINGs (the cleanup / maintenance job) --------------------------------
     seed('CLEANUP_ENABLED',        'SETTING', 'BOOLEAN', 'N',  null, null,
@@ -266,6 +274,8 @@ as
     seed('METRIC_LAST_JOB_CANCELLED_AT', 'METRIC', 'TIMESTAMP', null, null, null, 'When a job was last cancelled.');
     seed('METRIC_LAST_CLEANUP_AT',       'METRIC', 'TIMESTAMP', null, null, null, 'When the cleanup job last ran.');
     seed('METRIC_LAST_CLEANUP_DELETED',  'METRIC', 'NUMBER',    null, null, null, 'Rows deleted by the last cleanup run.');
+    seed('KMLEON_VERSION',               'METRIC', 'STRING',    null, null, null, 'Installed KMLeon release (stamped by install.sql / update.sql).');
+    seed('METRIC_LAST_INSTALL_AT',       'METRIC', 'TIMESTAMP', null, null, null, 'When install.sql / update.sql last ran.');
 
     pck_kml_log.info(c_pkg, 'init_defaults', 'default config rows seeded');
   end init_defaults;

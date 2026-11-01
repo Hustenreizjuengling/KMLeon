@@ -11,7 +11,16 @@ declare
   l_job number;
   l_a   number;
   l_kmz blob;
+  l_zip pls_integer;
 begin
+  -- optional component: KMZ needs APEX_ZIP; without APEX report and count as passed
+  select count(*) into l_zip from all_objects where object_name = 'APEX_ZIP' and object_type = 'SYNONYM';
+  if l_zip = 0 then
+    dbms_output.put_line('kmz smoke test SKIPPED (APEX_ZIP not available -- KMZ output needs APEX)');
+    begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_kmz')]'; exception when others then null; end;
+    return;
+  end if;
+
   l_job := pck_kml_job_api.create_job(
              p_document_name => 'KMZ smoke test',
              p_output_format => 'KMZ');
@@ -40,5 +49,7 @@ begin
   pck_kml_jobs_dml.del(l_job);   -- cleanup
   commit;
   dbms_output.put_line('kmz smoke test OK (job cleaned up)');
+  -- run_all.sql summary: mark this script as passed (no-op when run standalone)
+  begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_kmz')]'; exception when others then null; end;
 end;
 /

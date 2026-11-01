@@ -72,5 +72,7 @@ begin
   pck_kml_jobs_dml.del(l_job);   -- cleanup part 2
   commit;
   dbms_output.put_line('geojson smoke test OK (jobs cleaned up)');
+  -- run_all.sql summary: mark this script as passed (no-op when run standalone)
+  begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_geojson')]'; exception when others then null; end;
 end;
 /

@@ -54,5 +54,7 @@ begin
   pck_kml_jobs_dml.del(l_job);   -- cleanup
   commit;
   dbms_output.put_line('query smoke test OK (job cleaned up)');
+  -- run_all.sql summary: mark this script as passed (no-op when run standalone)
+  begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_query')]'; exception when others then null; end;
 end;
 /

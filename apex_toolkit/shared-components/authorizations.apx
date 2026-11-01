@@ -2,10 +2,33 @@ authorization IST_ADMIN (
     name: IST_ADMIN
     type: plSqlFunctionBody
     settings {
-        plsqlFunctionBody: return 1=1 and LOWER(:APP_USER) != 'nobody';
+        plsqlFunctionBody:
+            ```plsql
+            -- Admin gate for every toolkit page except the public ones.
+            -- * anonymous (nobody) is never an admin;
+            -- * if the workspace defines the group KMLEON_ADMIN, the user must be
+            --   a member (manage it under Workspace Administration > Groups);
+            -- * without that group every authenticated user is an admin -- the
+            --   upgrade-safe default for existing installs. Create the group to
+            --   lock the toolkit down.
+            declare
+              l_n pls_integer;
+            begin
+              if :APP_USER is null or lower(:APP_USER) = 'nobody' then
+                return false;
+              end if;
+              select count(*) into l_n
+                from apex_workspace_groups
+               where group_name = 'KMLEON_ADMIN';
+              if l_n = 0 then
+                return true;
+              end if;
+              return apex_util.current_user_in_group(p_group_name => 'KMLEON_ADMIN');
+            end;
+            ```
     }
     error {
-        errorMessage: Insufficient privileges - this page requires IST_ADMIN.
+        errorMessage: Insufficient privileges - this page requires IST_ADMIN (member of group KMLEON_ADMIN).
     }
 )
 

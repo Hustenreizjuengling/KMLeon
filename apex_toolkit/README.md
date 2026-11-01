@@ -106,9 +106,13 @@ format/version matches APEX 26.1 exactly.
 The side navigation is split into a public **My maps** entry (top) and an **Admin** group
 holding every other page; the Admin group and its links are gated by
 `apex_authorization.is_authorized('IST_ADMIN')` (via `serverSideCondition`), so they vanish
-without the privilege. All toolkit pages except the two public ones (100, 110) and login
-require the **`IST_ADMIN`** authorization scheme (currently `return 1=1;` — replace with
-real logic to lock the toolkit down). The public pages also set `navigation {
+without the privilege. All toolkit pages except the public ones (100, 110, 200, 210) and login
+require the **`IST_ADMIN`** authorization scheme: anonymous users are never admins; if
+the workspace defines the group **`KMLEON_ADMIN`**, membership is required; without the
+group every authenticated user is an admin (upgrade-safe default). Lock the toolkit
+down by creating the group (Workspace Administration ▸ Manage Users and Groups) and
+adding the administrators. The app's *Version* attribute carries the KMLeon release
+(shown in the footer) and is kept in sync with `VERSION` / `PCK_KML_ENGINE.gc_version`. The public pages also set `navigation {
 warnOnUnsavedChanges: false }` so navigating away (Open editor / Download) never prompts.
 
 Actions are wired as **Dynamic Actions** running server-side PL/SQL (no page

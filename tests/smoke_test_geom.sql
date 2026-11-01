@@ -148,5 +148,7 @@ begin
 
   dbms_output.put_line('--------------------------------------------------');
   dbms_output.put_line('geom smoke test OK (' || l_n || ' checks)');
+  -- run_all.sql summary: mark this script as passed (no-op when run standalone)
+  begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_geom')]'; exception when others then null; end;
 end;
 /

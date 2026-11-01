@@ -30,6 +30,7 @@
 - [Toolkit app](#toolkit-app)
 - [Feature mapping contract](#feature-mapping-contract)
 - [Conventions](#conventions)
+- [Security checklist (before production)](#security-checklist-before-production)
 - [Roadmap](#roadmap)
 - [License](#license)
 
@@ -47,15 +48,17 @@
     (the slow data-fetch runs *inside* the async job).
   - **GeoJSON** — push a FeatureCollection from outside (e.g. APEX REST).
 - **Rich, standards-compliant KML.** Shared `<Style>` definitions (deduped to `styleUrl`),
-  nested `<Folder>` hierarchies from `/`-separated paths, per-feature styling, and 3D
-  (`altitudeMode` / `extrude` / `tessellate`). KMZ via `APEX_ZIP`.
+  optional `<StyleMap>` highlight styles, nested `<Folder>` hierarchies from `/`-separated
+  paths, per-feature styling, and 3D (`altitudeMode` / `extrude` / `tessellate`). KMZ via
+  `APEX_ZIP`.
 - **Variable metadata per feature** — `name`, `description` (HTML balloon), and any extra
   attributes become `<ExtendedData>` automatically.
 - **Run it your way.** Synchronous (`run_now`), fire-and-forget in its own one-shot
   background job (`run_async` / `submit_job(p_async => true)`), or via the optional
   `KMLEON_DISPATCHER` queue (created **disabled** — enable it if you prefer polling).
 - **Completion e-mail.** `PCK_KML_NOTIFY` notifies on COMPLETED/FAILED with the result
-  attached — generic and best-effort, with `resolve_recipient` / `send_mail` hooks.
+  attached — best-effort; sends through `APEX_MAIL` (`NOTIFY_SENDER = APEX_MAIL`) or
+  your own `send_mail` hook, off by default.
 - **Operational config & metrics.** A typed `KML_CONFIG` store keeps behaviour settings and
   auto-maintained metrics (last created / completed / failed / cleanup); a scheduled cleanup
   job purges old jobs by status + age, and finished jobs free their assets automatically.
@@ -103,7 +106,7 @@ Job lifecycle: `DRAFT → PENDING → RUNNING → COMPLETED | FAILED | CANCELLED
 | `PCK_KML_MAINTENANCE` | config-driven cleanup of old jobs + its scheduler job |
 | `PCK_KML_JOB_API` | optional convenience wrapper |
 | `KMLEON_DISPATCHER` / `KMLEON_MAINTENANCE` | scheduler jobs: drain `PENDING` / scheduled cleanup |
-| ORDS `kmleon.v1` | optional REST module (ASSETS path) — [`sql/ords/010_rest_api.sql`](sql/ords/010_rest_api.sql) |
+| ORDS `kmleon.v1` | optional REST module (ASSETS path, `version`, `DELETE`) — [`sql/ords/010_rest_api.sql`](sql/ords/010_rest_api.sql); protection: [`020_rest_protect.sql`](sql/ords/020_rest_protect.sql) |
 
 ## Requirements
 
@@ -127,9 +130,44 @@ sqlplus kmleon/****@db @install.sql
 @scheduler/010_scheduler.sql      -- optional polled dispatcher (created DISABLED by default)
 ```
 
-Updating an existing install (non-destructive — keeps your data): `@update.sql`. It
-creates any new table, recompiles all packages, and seeds missing config defaults.
-Remove everything with `@uninstall.sql`. Smoke tests live in [`tests/`](tests).
+Recommended grants (as SYS): `grant create job to <schema>;` (for `run_async` and the
+scheduler jobs) and `grant execute on sys.dbms_crypto to <schema>;` (strong `access_key`
+tokens). Remove everything with `@uninstall.sql`.
+
+### Upgrade (in place)
+
+`@update.sql` brings any existing installation to the current release **without touching
+your data**: it adds missing tables/columns, recompiles every package in dependency order
+(plus dependants such as `PCK_KMLEON_TOOLS`), seeds new `KML_CONFIG` defaults *only where
+the key is missing* (your edited values survive), backfills `access_key`, and stamps the
+release into `KML_CONFIG` (`KMLEON_VERSION`, `METRIC_LAST_INSTALL_AT`). Safe to re-run.
+
+```sql
+sqlplus kmleon/****@db @update.sql           -- engine
+-- toolkit app: re-import apex_toolkit/ (same application id -> in-place), then
+@apex_toolkit/setup.sql                      -- helper package (re-runnable)
+@sql/ords/010_rest_api.sql                   -- REST module (drops + recreates kmleon.v1)
+@tests/run_all.sql                           -- verify: every script must PASS
+```
+
+Running jobs are not interrupted: a job claimed by a scheduler session keeps its already
+loaded package state; new runs pick up the new code. See [`CHANGELOG.md`](CHANGELOG.md)
+for release notes and any release-specific steps.
+
+### Versioning
+
+Semantic versioning. The release number lives in [`VERSION`](VERSION),
+`PCK_KML_ENGINE.gc_version` and the toolkit app's version attribute; `install.sql` /
+`update.sql` stamp it into `KML_CONFIG`, `GET …/kmleon/v1/version` reports it and
+`tests/smoke_test_version.sql` fails when code and stamp disagree (= "run update.sql").
+
+### Tests
+
+`tests/run_all.sql` runs every smoke test and prints a PASS/FAIL summary (non-zero exit
+code on failure — CI friendly). Each script also runs standalone. Tests that need an
+optional component (APEX for KMZ, the toolkit app for editor links) skip cleanly when it
+is absent. `tests/rest_smoke.sh <base-url> [client_id client_secret]` exercises the
+deployed REST module with curl/jq, optionally through the OAuth2 protection.
 
 ## Usage
 
@@ -252,6 +290,8 @@ POST   jobs/{id}/run        run synchronously now
 POST   jobs/{id}/cancel     cancel a DRAFT/PENDING job
 GET    jobs/{id}            status + metadata
 GET    jobs/{id}/result     download the KMZ/KML
+DELETE jobs/{id}            delete a job (409 while PENDING/RUNNING)
+GET    version              installed KMLeon release
 ```
 
 A **ready-to-run ORDS script** that creates exactly these endpoints (via the ORDS
@@ -270,7 +310,10 @@ REST; secure the module before using it (see the script's header).
   `METRIC_LAST_JOB_CREATED_AT`, `…_COMPLETED_AT`, `…_FAILED_AT`, `…_CANCELLED_AT`;
   the cleanup job stamps `METRIC_LAST_CLEANUP_AT` / `…_DELETED`. A metric write can
   never break the surrounding job transaction.
-- **SETTINGs** — behaviour switches. `DELETE_ASSETS_AFTER_SUCCESS` (default **ON**):
+- **SETTINGs** — behaviour switches. `STYLE_HIGHLIGHT_SCALE` (default off): set e.g.
+  `1.3` and every shared style gets a highlight variant (icon/label scale and line width
+  × factor) plus a `<StyleMap>` so features grow on hover in Google Earth. `NOTIFY_*`:
+  see [Notifications](#notifications). `DELETE_ASSETS_AFTER_SUCCESS` (default **ON**):
   after a job builds successfully, `run_job` deletes that job's stored
   `KML_JOB_ASSETS` rows (best-effort, separate transaction — the result stays on the
   job; note a later re-run of an `ASSETS` job then has no input). Plus the cleanup
@@ -299,14 +342,25 @@ Reinstalling preserves edited values (`init_defaults` only inserts missing keys)
 
 On COMPLETED and FAILED, `run_job` calls `PCK_KML_NOTIFY.notify` **best-effort** — a notify
 error can never change the job's committed status. It builds a generic subject/body with the
-result as an attachment and hands it to a sender. Out of the box it only logs; wire it to
-your mail stack by editing the two `-- CUSTOMIZE HERE` hooks:
+result as an attachment and hands it to the sender selected by the `NOTIFY_SENDER` setting:
 
-- **`resolve_recipient(user_tab, user_id)`** — map a job's creator to an address.
-- **`send_mail(...)`** — actually send (e.g. `APEX_MAIL` / `UTL_SMTP`).
+| `NOTIFY_SENDER` | Behaviour |
+|---|---|
+| `NONE` (default) | prepare + log only; nothing leaves the database |
+| `APEX_MAIL` | queue through `APEX_MAIL` — set `NOTIFY_FROM` (sender) and, for runs without an APEX session (scheduler / REST), `NOTIFY_APEX_WORKSPACE`; the APEX instance must have SMTP configured |
+| `CUSTOM` | your own `send_mail` hook in the package body (`-- CUSTOMIZE HERE`) |
+
+```sql
+exec pck_kml_config_dml.set_string('NOTIFY_SENDER', 'APEX_MAIL');
+exec pck_kml_config_dml.set_string('NOTIFY_FROM', 'kmleon@example.com');
+exec pck_kml_config_dml.set_string('NOTIFY_APEX_WORKSPACE', 'MYWS');
+commit;
+```
 
 The recipient is `KML_JOBS.notify_email` when set (wins, e.g. for REST callers), otherwise
-`resolve_recipient(user_tab, user_id)`. `notified_at` is stamped via the DML package.
+`resolve_recipient(user_tab, user_id)` (second hook; default `NULL`). `notified_at` is
+stamped via the DML package once the mail was handed over. `NOTIFY_MAX_ATTACH_BYTES`
+caps the attachment size.
 
 ## Toolkit app
 
@@ -356,13 +410,23 @@ See [`docs/data-model.md`](docs/data-model.md) for the full column reference and
 - **Audit columns** `created_at / created_by / updated_at / updated_by` on every table,
   auto-stamped by the DML package when passed NULL.
 
+## Security checklist (before production)
+
+- **REST**: run [`sql/ords/020_rest_protect.sql`](sql/ords/020_rest_protect.sql) — ORDS
+  privilege on `/kmleon/v1/*` + OAuth2 client-credentials client (prints the credentials;
+  `tests/rest_smoke.sh` verifies 401 without a token). Serve ORDS over HTTPS.
+- **Toolkit**: create the workspace group `KMLEON_ADMIN` and add the administrators —
+  the `IST_ADMIN` scheme then requires membership (without the group every authenticated
+  user is an admin, which keeps upgrades of existing installs painless).
+- **QUERY jobs** run arbitrary SQL with the KMLeon schema's privileges — only trusted,
+  in-database callers may enqueue them (they are deliberately not exposed over REST).
+- Grant `DBMS_CRYPTO` so `access_key` tokens come from a cryptographic source.
+- Keep `LOG_THRESHOLD` at `INFO` or `WARN` in production; enable the cleanup job.
+
 ## Roadmap
 
-- `<StyleMap>` (normal/highlight) styles.
-- A utPLSQL test suite.
-
-*(KMZ uses `APEX_ZIP`; a pure-PL/SQL ZIP fallback was intentionally dropped — APEX
-is assumed available in the target environment.)*
+- A utPLSQL test suite (the smoke tests already assert hard and run via `tests/run_all.sql`).
+- Optional pure-PL/SQL ZIP so KMZ works without `APEX_ZIP`.
 
 ## License
 

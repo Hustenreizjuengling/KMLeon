@@ -124,6 +124,10 @@ exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
 | `DELETE_ASSETS_AFTER_SUCCESS` | SETTING | BOOLEAN | `Y` | Delete a job's assets after a successful build. |
 | `LOG_THRESHOLD` | SETTING | STRING | `INFO` | Minimum severity `PCK_KML_LOG` persists (`ERROR`/`WARN`/`INFO`/`DEBUG`); read once per session. |
 | `NOTIFY_MAX_ATTACH_BYTES` | SETTING | NUMBER | `10485760` | Results larger than this are e-mailed without the attachment. |
+| `NOTIFY_SENDER` | SETTING | STRING | `NONE` | `NONE` / `APEX_MAIL` / `CUSTOM` — who sends the completion mail. |
+| `NOTIFY_FROM` | SETTING | STRING | — | Sender address for `APEX_MAIL`. |
+| `NOTIFY_APEX_WORKSPACE` | SETTING | STRING | — | Workspace to bootstrap for `APEX_MAIL` outside an APEX session. |
+| `STYLE_HIGHLIGHT_SCALE` | SETTING | NUMBER | — | `> 0` adds scaled highlight styles + `<StyleMap>`s. |
 | `CLEANUP_ENABLED` | SETTING | BOOLEAN | `N` | Master switch for the scheduled cleanup job. |
 | `CLEANUP_INTERVAL` | SETTING | STRING | `FREQ=DAILY;BYHOUR=3` | DBMS_SCHEDULER calendar for how often cleanup runs. |
 | `CLEANUP_RETENTION_DAYS` | SETTING | NUMBER | `30` | Only jobs finished older than this are eligible. |
@@ -135,6 +139,8 @@ exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
 | `METRIC_LAST_JOB_CANCELLED_AT` | METRIC | TIMESTAMP | — | Stamped by `cancel`. |
 | `METRIC_LAST_CLEANUP_AT` | METRIC | TIMESTAMP | — | Stamped by the cleanup run. |
 | `METRIC_LAST_CLEANUP_DELETED` | METRIC | NUMBER | — | Rows deleted by the last cleanup run. |
+| `KMLEON_VERSION` | METRIC | STRING | — | Installed release, stamped by `install.sql` / `update.sql`. |
+| `METRIC_LAST_INSTALL_AT` | METRIC | TIMESTAMP | — | When `install.sql` / `update.sql` last ran. |
 
 `PCK_KML_CONFIG_DML.init_defaults` seeds the keys above **only when missing**, so a
 reinstall/update preserves edited values. Metric stamping is **best-effort**: a failure to
@@ -244,6 +250,12 @@ Identical styles are **deduplicated**: each distinct style is emitted once as a
 references it via `<styleUrl>#ks#</styleUrl>`. For large exports where many
 features share styling this makes the output dramatically smaller. Placemarks with
 no style attributes get no `<styleUrl>`.
+
+With `STYLE_HIGHLIGHT_SCALE` set (e.g. `1.3`) each style additionally gets a
+`<Style id="ks#h">` highlight variant — icon scale, label scale and line width
+multiplied by the factor, implicit defaults (1) materialised, polygon-only styles
+given an outline — and a `<StyleMap id="ks#m">` pairing normal/highlight; placemarks
+then reference `#ks#m`.
 
 ## Notifications (`PCK_KML_NOTIFY`)
 

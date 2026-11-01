@@ -27,17 +27,19 @@
 --                               created DISABLED by default -- use /run for on-demand)
 --   POST   jobs/{id}/run        run synchronously now
 --   POST   jobs/{id}/cancel     cancel a DRAFT/PENDING job
+--   DELETE jobs/{id}            delete a job (+assets/result); 409 while PENDING/RUNNING
 --   GET    jobs/{id}/result     download the KMZ/KML
+--   GET    version              {"version":"<KMLeon release>","api":"v1"}
 --
 -- SECURITY (READ THIS)
 --   * The QUERY job source (arbitrary SQL run as this schema) is intentionally
 --     NOT exposed here -- create QUERY jobs only from inside the database.
 --   * The module is shipped PUBLISHED and UNPROTECTED on purpose, so you can adapt
 --     authentication to your own environment. These endpoints WRITE data and run
---     jobs -- before any non-trivial use, protect them: uncomment the "PROTECT THE
---     MODULE" block at the bottom (ORDS privilege), and/or front ORDS with
---     OAuth2 / first-party auth, HTTPS, and (optionally) CORS via
---     ORDS.SET_MODULE_ORIGINS_ALLOWED. Do not expose a public write API as-is.
+--     jobs -- before any non-trivial use, protect them: run 020_rest_protect.sql
+--     (ORDS privilege + OAuth2 client-credentials client, re-runnable), front ORDS
+--     with HTTPS, and (optionally) restrict CORS via ORDS.SET_MODULE_ORIGINS_ALLOWED.
+--     Do not expose a public write API as-is.
 --------------------------------------------------------------------------------
 
 set define off
@@ -131,11 +133,19 @@ begin
           exception when others then
             l_url := null;
           end;
-          :status_code := 201;
-          owa_util.mime_header('application/json');
-          htp.p('{"job_id":' || l_id || ',"status":"DRAFT","access_key":"' || l_key || '"'
-                || case when l_url is not null then ',"editor_url":"' || l_url || '"' end
-                || '}');
+          declare
+            l_out json_object_t := json_object_t();
+          begin
+            l_out.put('job_id', l_id);
+            l_out.put('status', 'DRAFT');
+            l_out.put('access_key', l_key);
+            if l_url is not null then
+              l_out.put('editor_url', l_url);
+            end if;
+            :status_code := 201;
+            owa_util.mime_header('application/json');
+            htp.p(l_out.to_clob);
+          end;
         end if;
       exception
         when others then        -- malformed JSON body etc.
@@ -208,8 +218,14 @@ begin
           htp.p('{"error":"key query parameter is required"}');
         else
           l_url := pck_kmleon_tools.public_editor_url(to_number(:id), :key);
-          owa_util.mime_header('application/json');
-          htp.p('{"job_id":' || :id || ',"editor_url":"' || l_url || '"}');
+          declare
+            l_out json_object_t := json_object_t();
+          begin
+            l_out.put('job_id', to_number(:id));
+            l_out.put('editor_url', l_url);
+            owa_util.mime_header('application/json');
+            htp.p(l_out.to_clob);
+          end;
         end if;
       exception
         when others then
@@ -356,6 +372,56 @@ begin
       end;
     ~');
 
+  -- DELETE jobs/:id : remove a job with its assets and result
+  ords.define_handler(
+    p_module_name => 'kmleon.v1',
+    p_pattern     => 'jobs/:id',
+    p_method      => 'DELETE',
+    p_source_type => ords.source_type_plsql,
+    p_source      => q'~
+      begin
+        pck_kml_job_api.delete_job(to_number(:id));
+        owa_util.mime_header('application/json');
+        htp.p('{"job_id":' || to_number(:id) || ',"deleted":true}');
+      exception
+        when others then
+          if sqlcode = -20813 then            -- job not found
+            :status_code := 404;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job not found"}');
+          elsif sqlcode = -20815 then         -- PENDING / RUNNING
+            :status_code := 409;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"job cannot be deleted while pending or running; cancel it first"}');
+          elsif sqlcode = -1722 then          -- non-numeric :id
+            :status_code := 400;
+            owa_util.mime_header('application/json');
+            htp.p('{"error":"invalid job id"}');
+          else
+            raise;
+          end if;
+      end;
+    ~');
+
+  ----------------------------------------------------------------- version
+  ords.define_template(p_module_name => 'kmleon.v1', p_pattern => 'version');
+  ords.define_handler(
+    p_module_name => 'kmleon.v1',
+    p_pattern     => 'version',
+    p_method      => 'GET',
+    p_source_type => ords.source_type_plsql,
+    p_source      => q'~
+      declare
+        l_out json_object_t := json_object_t();
+      begin
+        l_out.put('version', pck_kml_engine.version);
+        l_out.put('installed', pck_kml_config_dml.get_string('KMLEON_VERSION'));
+        l_out.put('api', 'v1');
+        owa_util.mime_header('application/json');
+        htp.p(l_out.to_clob);
+      end;
+    ~');
+
   ----------------------------------------------------------------- jobs/:id/result
   -- Download the generated KMZ/KML. Uses source_type_media (the documented pattern
   -- for GET binary/text downloads): the query returns the MIME type first and the
@@ -387,23 +453,13 @@ end;
 select t.uri_template, h.method, h.source_type
   from user_ords_templates t
   join user_ords_handlers  h on h.template_id = t.id
- where t.uri_template like 'jobs%'
+  join user_ords_modules   m on m.id = t.module_id
+ where m.name = 'kmleon.v1'
  order by t.uri_template, h.method;
 
 --------------------------------------------------------------------------------
--- OPTIONAL: PROTECT THE MODULE with an ORDS privilege (recommended).
--- After this, callers need a mapped role (OAuth2 client / first-party user).
+-- PROTECT THE MODULE: see 020_rest_protect.sql (ORDS privilege + OAuth2 client).
 --------------------------------------------------------------------------------
--- begin
---   ords.define_privilege(
---     p_privilege_name => 'kmleon.access',
---     p_roles          => ords_t_strings('KMLeon User'),
---     p_patterns       => ords_t_strings('/kmleon/v1/*'),
---     p_label          => 'KMLeon API',
---     p_description     => 'Access to the KMLeon REST API');
---   commit;
--- end;
--- /
 --------------------------------------------------------------------------------
 -- To remove everything again:
 --   begin ords.delete_module(p_module_name => 'kmleon.v1'); commit; end;

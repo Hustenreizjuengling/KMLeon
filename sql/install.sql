@@ -84,6 +84,32 @@ begin
 end;
 /
 
+prompt -- stamp the installed release (KML_CONFIG: KMLEON_VERSION / METRIC_LAST_INSTALL_AT)
+begin
+  pck_kml_config_dml.set_string('KMLEON_VERSION', pck_kml_engine.gc_version, 'METRIC');
+  pck_kml_config_dml.touch_metric('METRIC_LAST_INSTALL_AT');
+  commit;
+  dbms_output.put_line('KMLeon version ' || pck_kml_engine.gc_version);
+end;
+/
+
+
+prompt -- recompile dependants left INVALID by the package changes (e.g. PCK_KMLEON_TOOLS)
+begin
+  for r in (select object_name, object_type
+              from user_objects
+             where status <> 'VALID'
+               and (object_name like 'KML\_%' escape '\' or object_name like 'PCK\_KML%' escape '\')
+             order by case object_type when 'PACKAGE' then 1 when 'PACKAGE BODY' then 2 else 3 end)
+  loop
+    begin
+      execute immediate 'alter ' || case r.object_type when 'PACKAGE BODY' then 'package' else lower(r.object_type) end
+                        || ' ' || r.object_name || ' compile' || case r.object_type when 'PACKAGE BODY' then ' body' end;
+    exception when others then null;   -- the status query below reports what is still invalid
+    end;
+  end loop;
+end;
+/
 prompt
 prompt -- Object status (anything not VALID needs attention):
 column object_name format a28
@@ -92,6 +118,8 @@ select object_name, object_type, status
   from user_objects
  where (object_name like 'KML\_%' escape '\' or object_name like 'PCK\_KML%' escape '\')
  order by object_type, object_name;
+
+select value_string as kmleon_version from kml_config where config_key = 'KMLEON_VERSION';
 
 prompt
 prompt KMLeon installed.

@@ -68,5 +68,7 @@ begin
   commit;
   dbms_lob.freetemporary(l_json);
   dbms_output.put_line('extdata smoke test OK (jobs cleaned up)');
+  -- run_all.sql summary: mark this script as passed (no-op when run standalone)
+  begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_extdata')]'; exception when others then null; end;
 end;
 /

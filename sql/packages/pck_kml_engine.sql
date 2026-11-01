@@ -29,6 +29,12 @@ as
   c_pkg     constant varchar2(30)  := 'PCK_KML_ENGINE';
   gc_kml_ns constant varchar2(100) := 'http://www.opengis.net/kml/2.2';
 
+  -- KMLeon release (semantic versioning). Single source of truth for the code;
+  -- install.sql / update.sql stamp it into KML_CONFIG (KMLEON_VERSION) and the
+  -- REST module exposes it under GET version. Keep in sync with /VERSION.
+  gc_version constant varchar2(20) := '1.1.0';
+  function version return varchar2;
+
   -- Convert geometry (SDO or GeoJSON) into a KML geometry fragment, optionally
   -- injecting placement tags (altitudeMode / extrude / tessellate). These affect
   -- only 3D viewers (Google Earth, Cesium, ...); 2D viewers ignore them, and
@@ -76,6 +82,14 @@ as
   type t_style_map is table of pls_integer index by varchar2(32767);
   g_styles    t_style_map;
   g_style_seq pls_integer := 0;
+  -- STYLE_HIGHLIGHT_SCALE setting (read once per build): when > 0 every shared
+  -- style also gets a highlight variant + a <StyleMap>; NULL = plain styles.
+  g_highlight number;
+
+  function version return varchar2 is
+  begin
+    return gc_version;
+  end version;
 
   --==============================================================================
   -- Scalar helpers
@@ -485,6 +499,10 @@ as
   begin
     g_styles.delete;
     g_style_seq := 0;
+    g_highlight := pck_kml_config_dml.get_number('STYLE_HIGHLIGHT_SCALE');
+    if g_highlight is not null and g_highlight <= 0 then
+      g_highlight := null;
+    end if;
   end reset_styles;
 
   -- Register a <Style>...</Style> block and return its shared id (e.g. 'ks3').
@@ -501,15 +519,71 @@ as
     return 'ks' || g_styles(p_style_xml);
   end register_style;
 
-  -- Emit every registered style as a <Style id="ks#"> definition (Document header).
+  -- The styleUrl a placemark references for a registered style id: the plain
+  -- style, or its <StyleMap> when highlight styles are enabled.
+  function style_ref(p_id in varchar2) return varchar2 is
+  begin
+    return '#' || p_id || case when g_highlight is not null then 'm' end;
+  end style_ref;
+
+  -- Scale every <scale>/<width> inside a <Style> block by p_factor (icon scale,
+  -- label scale, line width); sub-styles without an explicit value get the factor
+  -- itself (their implicit default is 1). The result is the "highlight" variant.
+  function highlight_style(p_style_xml in varchar2, p_factor in number) return varchar2 is
+    l varchar2(32767) := p_style_xml;
+    l_f varchar2(40) := num(p_factor);
+    l_pos pls_integer := 1;
+    l_m varchar2(200);
+    l_v number;
+  begin
+    -- explicit <scale>v</scale> / <width>v</width>
+    loop
+      l_m := regexp_substr(l, '<(scale|width)>[^<]+</\1>', l_pos);
+      exit when l_m is null;
+      l_pos := regexp_instr(l, '<(scale|width)>[^<]+</\1>', l_pos);
+      l_v := to_number(regexp_substr(l_m, '>([^<]+)<', 1, 1, null, 1),
+                       '999999999999999999.999999999999', 'NLS_NUMERIC_CHARACTERS=''. ''');
+      l := substr(l, 1, l_pos - 1)
+           || regexp_replace(l_m, '>[^<]+<', '>' || num(l_v * p_factor) || '<')
+           || substr(l, l_pos + length(l_m));
+      l_pos := l_pos + 1;
+    end loop;
+    -- implicit defaults
+    if instr(l, '<IconStyle>') > 0 and not regexp_like(l, '<IconStyle>(<[^/][^>]*>[^<]*</[^>]+>)*<scale>') then
+      l := replace(l, '<IconStyle>', '<IconStyle><scale>' || l_f || '</scale>');
+    end if;
+    if instr(l, '<LineStyle>') > 0 and not regexp_like(l, '<LineStyle>(<[^/][^>]*>[^<]*</[^>]+>)*<width>') then
+      l := replace(l, '<LineStyle>', '<LineStyle><width>' || l_f || '</width>');
+    end if;
+    if instr(l, '<IconStyle>') = 0 and instr(l, '<LineStyle>') = 0 and instr(l, '<LabelStyle>') = 0 then
+      -- polygon-only style: make the highlight visible through a thicker outline
+      l := replace(l, '</Style>', '<LineStyle><width>' || l_f || '</width></LineStyle></Style>');
+    end if;
+    return l;
+  exception
+    when others then
+      return p_style_xml;   -- never break a build over a highlight cosmetic
+  end highlight_style;
+
+  -- Emit every registered style as a <Style id="ks#"> definition (Document header);
+  -- with STYLE_HIGHLIGHT_SCALE also "ks#h" (highlight) and the <StyleMap id="ks#m">.
   procedure emit_styles(l_kml in out nocopy clob) is
     l_key varchar2(32767);
+    l_id  varchar2(30);
   begin
     l_key := g_styles.first;
     while l_key is not null loop
+      l_id := 'ks' || g_styles(l_key);
       -- the key always starts with '<Style>'; rewrite only that opening tag
-      app(l_kml, '<Style id="ks' || g_styles(l_key) || '">'
-                 || substr(l_key, length('<Style>') + 1) || chr(10));
+      app(l_kml, '<Style id="' || l_id || '">' || substr(l_key, length('<Style>') + 1) || chr(10));
+      if g_highlight is not null then
+        app(l_kml, '<Style id="' || l_id || 'h">'
+                   || substr(highlight_style(l_key, g_highlight), length('<Style>') + 1) || chr(10));
+        app(l_kml, '<StyleMap id="' || l_id || 'm">'
+                   || '<Pair><key>normal</key><styleUrl>#' || l_id || '</styleUrl></Pair>'
+                   || '<Pair><key>highlight</key><styleUrl>#' || l_id || 'h</styleUrl></Pair>'
+                   || '</StyleMap>' || chr(10));
+      end if;
       l_key := g_styles.next(l_key);
     end loop;
   end emit_styles;
@@ -541,7 +615,7 @@ as
       app(l_kml, ']]></description>');
     end if;
     if p_style is not null then
-      app(l_kml, '<styleUrl>#' || register_style(p_style) || '</styleUrl>');
+      app(l_kml, '<styleUrl>' || style_ref(register_style(p_style)) || '</styleUrl>');
     end if;
     appc(l_kml, p_ext_xml);
     appc(l_kml, p_geom);
