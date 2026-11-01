@@ -352,7 +352,7 @@ page 1 (
                 dataType: STRING
             }
             columnFormatting {
-                htmlExpression: <span class='t-Badge &STATUS_CSS.'>&STATUS.</span>
+                htmlExpression: <span class='t-Badge #STATUS_CSS#'>#STATUS#</span>
             }
         )
         column STATUS_CSS (

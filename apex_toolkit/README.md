@@ -132,7 +132,9 @@ begin
   commit;
   l_key := pck_kml_job_api.get_access_key(l_job);   -- generated on create
   -- redirect the user to the public editor (same APEX instance):
-  --   f?p=<TOOLKIT_APP_ID>:100:0::::P100_JOB_ID,P100_ACCESS_KEY:<l_job>,<l_key>
+  --   friendly: .../ords/r/<workspace>/kmleon/public-editor-v2?p200_job_id=<l_job>&p200_access_key=<l_key>
+  --   classic : f?p=<TOOLKIT_APP_ID>:200:0::NO::P200_JOB_ID,P200_ACCESS_KEY:<l_job>,<l_key>
+  --   (or simply use the URL from PCK_KMLEON_TOOLS.public_editor_url / POST /jobs)
 end;
 ```
 
@@ -147,8 +149,12 @@ end;
   and ORDS context root are derived from the incoming request's CGI environment. The
   `key` parameter is required and must match — the endpoint only formats what the
   caller already knows, so it cannot be used to harvest tokens.
-- The two link items are `sessionStateProtection: unrestricted`, so the link needs **no
-  APEX checksum** — the unguessable `access_key` is the access control.
+- Page 200 is `pageAccessProtection: unrestricted` and its two link items are
+  `sessionStateProtection: unrestricted`, so the link needs **no APEX checksum** — the
+  unguessable `access_key` is the access control. The classic editor (page 100) keeps
+  *Arguments Must Have Checksum*, so a hand-built page-100 URL fails with a session state
+  protection violation; reach page 100 only through links APEX builds itself (the *Open
+  editor* column on page 110), and deep-link external users to page 200.
 - The job is **not** submitted/rendered by your app; the user finishes it in the editor
   and downloads on demand. The job stays DRAFT throughout, so it can be reopened/edited
   with the same link any number of times.

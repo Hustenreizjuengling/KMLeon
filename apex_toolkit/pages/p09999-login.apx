@@ -1,7 +1,7 @@
 page 9999 (
     name: Login Page
     alias: LOGIN
-    title: TestApp - Log In
+    title: KMLeon Toolkit - Log In
     appearance {
         pageTemplate: @/login
         templateOptions: #DEFAULT#
@@ -16,7 +16,7 @@ page 9999 (
     }
 
     region testapp (
-        name: TestApp
+        name: KMLeon Toolkit
         type: staticContent
         layout {
             sequence: 10
