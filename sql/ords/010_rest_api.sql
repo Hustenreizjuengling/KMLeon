@@ -13,7 +13,7 @@
 --   GET    jobs                 list recent jobs
 --   POST   jobs                 create an ASSETS job   (JSON body)
 --                               -> {job_id,status,access_key,editor_url}
---   GET    jobs/{id}            job status + metadata
+--   GET    jobs/{id}            job status + metadata (404 unknown, 400 non-numeric id)
 --   GET    jobs/{id}/editor-link?key=<access_key>
 --                               full public-editor deep link for the job
 --                               -> {job_id,editor_url}. The key is REQUIRED and
@@ -176,10 +176,15 @@ begin
          where job_id = to_number(:id);
         owa_util.mime_header('application/json');
         htp.p(l_json);
-      exception when no_data_found then
-        :status_code := 404;
-        owa_util.mime_header('application/json');
-        htp.p('{"error":"job not found"}');
+      exception
+        when no_data_found then
+          :status_code := 404;
+          owa_util.mime_header('application/json');
+          htp.p('{"error":"job not found"}');
+        when invalid_number or value_error then   -- non-numeric :id (ORA-1722 / ORA-6502)
+          :status_code := 400;
+          owa_util.mime_header('application/json');
+          htp.p('{"error":"invalid job id"}');
       end;
     ~');
 
@@ -368,7 +373,7 @@ begin
              case when output_format = 'KMZ' then result_kmz
                   else pck_kml_engine.clob_to_blob(result_kml) end as media_resource
         from kml_jobs
-       where job_id = to_number(:id)
+       where job_id = to_number(:id default null on conversion error)   -- non-numeric id -> no row -> 404
          and status = 'COMPLETED'
     ~');
 

@@ -10,6 +10,7 @@
 -- have data immediately. Re-runnable: the package uses CREATE OR REPLACE; the
 -- sample jobs accumulate (delete them by hand if you don't want extras).
 --------------------------------------------------------------------------------
+set define off
 set serveroutput on size unlimited
 set echo off
 whenever sqlerror continue
