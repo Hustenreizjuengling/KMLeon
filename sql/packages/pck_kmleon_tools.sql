@@ -88,6 +88,21 @@ as
     p_access_key in varchar2
   ) return varchar2;
 
+  -- APEX application error handling function (Application > Error Handling).
+  -- Turns KMLeon's own errors (-208xx engine / DML, -209xx toolkit pages) into
+  -- the plain message without the ORA- prefix, keeps APEX validation/internal
+  -- messages as they are, and replaces any other database error with a generic
+  -- text + reference while the technical details go to the APEX debug log.
+  function apex_error_handler(p_error in apex_error.t_error) return apex_error.t_error_result;
+
+  -- 'Y' when p_text parses as a JSON object (NULL/empty -> 'Y' as well, so it
+  -- composes with a separate required check). For page validations.
+  function is_json_object(p_text in clob) return varchar2;
+
+  -- The GeoJSON "type" member of p_text (Point, Polygon, Feature, ...), NULL when
+  -- p_text is not valid JSON or has no type. Used by the toolkit's validations.
+  function geojson_type(p_text in clob) return varchar2;
+
   -- Convert a KML aabbggrr color back to an HTML #RRGGBB string (for loading a
   -- stored asset's color into a color picker). Returns NULL on bad input.
   function kml_to_rgb(p_kml in varchar2) return varchar2;
@@ -610,6 +625,68 @@ as
     end if;
     p_scheme_host := l_scheme || '://' || l_host;
   end request_base;
+
+
+  function is_json_object(p_text in clob) return varchar2 is
+    l json_element_t;
+  begin
+    if p_text is null or dbms_lob.getlength(p_text) = 0 then
+      return 'Y';
+    end if;
+    l := json_element_t.parse(p_text);
+    return case when l.is_object then 'Y' else 'N' end;
+  exception
+    when others then
+      return 'N';
+  end is_json_object;
+
+
+  function geojson_type(p_text in clob) return varchar2 is
+  begin
+    if p_text is null then
+      return null;
+    end if;
+    return json_value(p_text, '$.type' returning varchar2(60) null on error);
+  exception
+    when others then
+      return null;
+  end geojson_type;
+
+
+  function apex_error_handler(p_error in apex_error.t_error) return apex_error.t_error_result is
+    l_result apex_error.t_error_result;
+    l_ref    varchar2(40);
+  begin
+    l_result := apex_error.init_error_result(p_error => p_error);
+
+    if p_error.is_internal_error then
+      -- APEX-internal / developer errors: end users get the standard message;
+      -- toolkit admins (IST_ADMIN) also see the technical cause
+      if not p_error.is_common_runtime_error then
+        apex_debug.error('KMLeon internal error: %s %s', p_error.message, p_error.additional_info);
+        l_result.message := 'An unexpected error occurred. The details have been logged.';
+        l_result.additional_info := case when apex_authorization.is_authorized('IST_ADMIN')
+                                         then substr(p_error.message || ' ' || p_error.additional_info, 1, 2000) end;
+      end if;
+    elsif p_error.ora_sqlcode between -20999 and -20800 then
+      -- KMLeon messages are written for users: strip "ORA-20xxx: " and any stack
+      l_result.message := regexp_replace(apex_error.get_first_ora_error_text(p_error => p_error), '^ORA-\d+: ', '');
+      l_result.additional_info := null;
+    elsif p_error.ora_sqlcode is not null then
+      -- any other database error: generic text + reference, details in debug
+      l_ref := to_char(systimestamp, 'YYYYMMDDHH24MISSFF3');
+      apex_debug.error('KMLeon error %s: %s', l_ref, p_error.message || ' ' || p_error.additional_info);
+      l_result.message         := 'The request could not be completed (reference ' || l_ref || ').';
+      l_result.additional_info := case when apex_authorization.is_authorized('IST_ADMIN')
+                                       then substr(apex_error.get_first_ora_error_text(p_error => p_error), 1, 2000) end;
+    end if;
+
+    -- inline-with-field needs an associated item; otherwise show in the notification
+    if l_result.page_item_name is null and l_result.column_alias is null then
+      l_result.display_location := apex_error.c_inline_in_notification;
+    end if;
+    return l_result;
+  end apex_error_handler;
 
 
   function public_editor_url(

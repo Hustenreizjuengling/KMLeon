@@ -1,0 +1,71 @@
+app KMLEON2 (
+    name: KMLeon Toolkit 2
+    version: 2.0.0-preview
+    logo {
+        type: text
+        text: KMLeon 2
+    }
+    navigation {
+        homeUrl: {
+            page: 1
+        }
+        loginUrl: {
+            page: 9999
+        }
+    }
+    navigationMenu {
+        listTemplate: @/side-navigation-menu
+        templateOptions: [
+            #DEFAULT#
+            t-TreeNav--styleA
+            js-defaultCollapsed
+        ]
+        listPosition: side
+        list: @navigation-menu
+    }
+    navigationBar {
+        list: @navigation-bar
+        listTemplate: @/navigation-bar
+        templateOptions: #DEFAULT#
+    }
+    userInterface {
+        currentTheme: @universal-theme
+        globalPage: 0
+        usersCanChooseThemeStyle: true
+    }
+    appFormatMasks {
+        date: DS
+        timestamp: DS
+        timestampTimeZone: DS
+    }
+    authentication {
+        scheme: @oracle-apex-accounts
+    }
+    sessionStateProtection {
+        checksumSalt: 638F8BB0DC21F7E41DC650BEBF56114333945A8275B3A08601836DEC4C8474BC
+    }
+    globalization {
+        primaryLanguage: en
+        autoTimeZone: true
+    }
+    errorHandling {
+        errorHandlingFunctionName: pck_kmleon_tools.apex_error_handler
+        defaultDisplayLocation: inlineWithFieldAndInNotification
+    }
+    runtime {
+        allowFeedback: true
+        debugging: true
+        compatibilityMode: 24.2
+    }
+    advanced {
+        modernizeApp: true
+    }
+
+    substitution APP_NAME (
+        value {
+            staticValue: KMLeon Toolkit 2
+        }
+    )
+
+)
+

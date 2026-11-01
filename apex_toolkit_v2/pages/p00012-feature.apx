@@ -1,0 +1,1312 @@
+page 12 (
+    name: Feature
+    alias: FEATURE
+    title: Feature
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 1100
+        height: 740
+    }
+    javaScript {
+        fileUrls: [
+            #APP_FILES#kmleon-draw.js
+        ]
+        executeWhenPageLoads:
+            ```javascript-browser
+            kmleonDraw.init({ region: "preview", item: "P12_GEOJSON" });
+            ```
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        authentication: public
+        authorizationScheme: @EDITOR_ACCESS
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region draw (
+        name: Geometry
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+            columnSpan: 7
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+            ]
+        }
+    )
+
+    pageItem P12_JOB_ID (
+        type: hidden
+        layout {
+            sequence: 1
+            region: @draw
+            slot: regionBody
+        }
+    )
+    pageItem P12_ACCESS_KEY (
+        type: hidden
+        layout {
+            sequence: 2
+            region: @draw
+            slot: regionBody
+        }
+    )
+    pageItem P12_ASSET_ID (
+        type: hidden
+        layout {
+            sequence: 3
+            region: @draw
+            slot: regionBody
+        }
+    )
+    pageItem P12_TITLE (
+        type: hidden
+        layout {
+            sequence: 4
+            region: @draw
+            slot: regionBody
+        }
+    )
+
+    region tools (
+        name: Draw
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @draw
+            slot: subRegions
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    button draw-point (
+        buttonName: DRAW_POINT
+        label: Point
+        layout {
+            sequence: 10
+            region: @tools
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-map-marker
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        advanced {
+            customAttributes: data-draw="Point"
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+    button draw-line (
+        buttonName: DRAW_LINE
+        label: Line
+        layout {
+            sequence: 20
+            region: @tools
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-share-alt
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        advanced {
+            customAttributes: data-draw="LineString"
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+    button draw-polygon (
+        buttonName: DRAW_POLYGON
+        label: Polygon
+        layout {
+            sequence: 30
+            region: @tools
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-square-o
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        advanced {
+            customAttributes: data-draw="Polygon"
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+    button draw-undo (
+        buttonName: DRAW_UNDO
+        label: Undo point
+        layout {
+            sequence: 40
+            region: @tools
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-undo
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+    button draw-clear (
+        buttonName: DRAW_CLEAR
+        label: Clear
+        layout {
+            sequence: 50
+            region: @tools
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-eraser
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    region preview (
+        name: Map
+        type: map
+        layout {
+            sequence: 20
+            parentRegion: @draw
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+            ]
+        }
+        advanced {
+            htmlDomId: preview
+        }
+        map {
+            height: 420
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            type: basedOnSpatialResults
+        }
+        attributes {
+            messagesPosition: below
+        }
+
+        layer pts (
+            name: Points
+            label {
+                label: Points
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select 1 as id, :P12_GEOJSON as geojson from dual
+                     where :P12_GEOJSON is json
+                       and json_value(:P12_GEOJSON, '$.type') in ('Point', 'MultiPoint')
+                    ```
+                pageItemsToSubmit: P12_GEOJSON
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+        )
+        layer lines (
+            layerType: lines
+            name: Lines
+            label {
+                label: Lines
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select 1 as id, :P12_GEOJSON as geojson from dual
+                     where :P12_GEOJSON is json
+                       and json_value(:P12_GEOJSON, '$.type') in ('LineString', 'MultiLineString')
+                    ```
+                pageItemsToSubmit: P12_GEOJSON
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 3
+            }
+        )
+        layer polys (
+            layerType: polygons
+            name: Polygons
+            label {
+                label: Polygons
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select 1 as id, :P12_GEOJSON as geojson from dual
+                     where :P12_GEOJSON is json
+                       and json_value(:P12_GEOJSON, '$.type') in ('Polygon', 'MultiPolygon')
+                    ```
+                pageItemsToSubmit: P12_GEOJSON
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 2
+                fillColor: #2563eb
+                fillOpacity: 0.3
+            }
+        )
+    )
+
+    region geojson (
+        name: Geometry as GeoJSON
+        type: staticContent
+        layout {
+            sequence: 30
+            parentRegion: @draw
+            slot: subRegions
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-collapsed
+            ]
+        }
+    )
+
+    pageItem P12_GEOJSON (
+        type: textarea
+        label {
+            label: GeoJSON geometry
+        }
+        layout {
+            sequence: 10
+            region: @geojson
+            slot: regionBody
+        }
+        appearance {
+            template: @/hidden
+            height: 4
+        }
+        help {
+            helpText: Draw on the map or paste a GeoJSON geometry object here (Point, LineString, Polygon or their Multi variants).
+        }
+    )
+
+    region props (
+        name: Properties
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: contentBody
+            columnSpan: 5
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+            ]
+        }
+    )
+
+    pageItem P12_NAME (
+        type: textField
+        label {
+            label: Name
+        }
+        layout {
+            sequence: 10
+            region: @props
+            slot: regionBody
+        }
+        appearance {
+            template: @/required-floating
+        }
+        validation {
+            valueRequired: true
+        }
+    )
+    pageItem P12_FOLDER (
+        type: textField
+        label {
+            label: Folder
+        }
+        layout {
+            sequence: 20
+            region: @props
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        help {
+            helpText: Features with the same folder name are grouped into one KML folder.
+        }
+    )
+    pageItem P12_LINE_COLOR (
+        type: colorPicker
+        label {
+            label: Line color
+        }
+        layout {
+            sequence: 30
+            region: @props
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_LINE_WIDTH (
+        type: numberField
+        label {
+            label: Line width
+        }
+        layout {
+            sequence: 40
+            region: @props
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_POLY_COLOR (
+        type: colorPicker
+        label {
+            label: Fill color
+        }
+        layout {
+            sequence: 50
+            region: @props
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_POLY_ALPHA (
+        type: numberField
+        label {
+            label: Fill opacity (0-255)
+        }
+        layout {
+            sequence: 60
+            region: @props
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_POLY_FILL (
+        type: selectList
+        label {
+            label: Fill polygons
+        }
+        layout {
+            sequence: 70
+            region: @props
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Yes' as d, 'Y' as r from dual union all select 'No', 'N' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+    pageItem P12_POLY_OUTLINE (
+        type: selectList
+        label {
+            label: Outline polygons
+        }
+        layout {
+            sequence: 80
+            region: @props
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Yes' as d, 'Y' as r from dual union all select 'No', 'N' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+
+    region advanced (
+        name: Labels, icons and altitude
+        type: staticContent
+        layout {
+            sequence: 10
+            parentRegion: @props
+            slot: subRegions
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-collapsed
+            ]
+        }
+    )
+
+    pageItem P12_LABEL_COLOR (
+        type: colorPicker
+        label {
+            label: Label color
+        }
+        layout {
+            sequence: 10
+            region: @advanced
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_LABEL_SCALE (
+        type: numberField
+        label {
+            label: Label scale
+        }
+        layout {
+            sequence: 20
+            region: @advanced
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_ICON_HREF (
+        type: textField
+        label {
+            label: Icon URL
+        }
+        layout {
+            sequence: 30
+            region: @advanced
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_ICON_SCALE (
+        type: numberField
+        label {
+            label: Icon scale
+        }
+        layout {
+            sequence: 40
+            region: @advanced
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+    pageItem P12_ALTITUDE_MODE (
+        type: selectList
+        label {
+            label: Altitude mode
+        }
+        layout {
+            sequence: 50
+            region: @advanced
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select d, r from (
+                  select 'Clamp to ground' as d, 'clampToGround' as r, 1 as o from dual
+                  union all select 'Relative to ground', 'relativeToGround', 2 from dual
+                  union all select 'Absolute', 'absolute', 3 from dual
+                ) order by o
+                ```
+            displayNullValue: true
+            nullDisplayValue: - Default -
+        }
+    )
+    pageItem P12_EXTRUDE (
+        type: selectList
+        label {
+            label: Extrude
+        }
+        layout {
+            sequence: 60
+            region: @advanced
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 3
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Yes' as d, 'Y' as r from dual union all select 'No', 'N' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+    pageItem P12_TESSELLATE (
+        type: selectList
+        label {
+            label: Tessellate
+        }
+        layout {
+            sequence: 70
+            region: @advanced
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 3
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 'Yes' as d, 'Y' as r from dual union all select 'No', 'N' from dual
+                ```
+            displayNullValue: false
+        }
+    )
+    pageItem P12_EXT_DATA (
+        type: textarea
+        label {
+            label: Extended data (JSON object)
+        }
+        layout {
+            sequence: 80
+            region: @advanced
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            height: 3
+        }
+        help {
+            helpText: Key/value pairs written into the placemark's ExtendedData, e.g. {"category":"depot","capacity":120}.
+        }
+    )
+
+    region code (
+        name: Code for developers
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/collapsible
+            templateOptions: [
+                #DEFAULT#
+                is-collapsed
+            ]
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P12_ASSET_ID is not null and apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    pageItem P12_SNIPPET (
+        type: textarea
+        label {
+            label: PL/SQL add_asset call
+        }
+        layout {
+            sequence: 10
+            region: @code
+            slot: regionBody
+            columnSpan: 4
+        }
+        appearance {
+            template: @/optional-above
+            height: 10
+        }
+        readOnly {
+            type: always
+        }
+    )
+    pageItem P12_KML_STYLE (
+        type: textarea
+        label {
+            label: KML style
+        }
+        layout {
+            sequence: 20
+            region: @code
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 4
+        }
+        appearance {
+            template: @/optional-above
+            height: 10
+        }
+        readOnly {
+            type: always
+        }
+    )
+    pageItem P12_REST_ASSET (
+        type: textarea
+        label {
+            label: REST (curl)
+        }
+        layout {
+            sequence: 30
+            region: @code
+            slot: regionBody
+            startNewRow: false
+            columnSpan: 4
+        }
+        appearance {
+            template: @/optional-above
+            height: 10
+        }
+        readOnly {
+            type: always
+        }
+    )
+
+    region footer (
+        name: Buttons
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: dialogFooter
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    button cancel (
+        buttonName: CANCEL
+        label: Cancel
+        layout {
+            sequence: 10
+            region: @footer
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+    button delete (
+        buttonName: DELETE
+        label: Delete
+        layout {
+            sequence: 20
+            region: @footer
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-trash
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+                t-Button--danger
+            ]
+        }
+        behavior {
+            action: submitPage
+            executeValidations: false
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Delete this feature? This cannot be undone.
+            style: danger
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P12_ASSET_ID
+        }
+    )
+    button save (
+        buttonName: SAVE
+        label: Save
+        layout {
+            sequence: 30
+            region: @footer
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-check
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+            hot: true
+        }
+        behavior {
+            action: submitPage
+            executeValidations: true
+        }
+    )
+
+    validation geometry-required (
+        name: Geometry required
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P12_GEOJSON
+        }
+        error {
+            errorMessage: Draw a geometry on the map (Point, Line or Polygon) or paste one as GeoJSON.
+            associatedItem: @P12_GEOJSON
+        }
+    )
+    validation geometry-valid (
+        name: Geometry is a GeoJSON geometry
+        execution {
+            sequence: 20
+        }
+        validation {
+            type: expression
+            language: plsql
+            plsqlExpression: pck_kmleon_tools.is_json_object(:P12_GEOJSON) = 'Y' and pck_kmleon_tools.geojson_type(:P12_GEOJSON) in ('Point','MultiPoint','LineString','MultiLineString','Polygon','MultiPolygon')
+        }
+        error {
+            errorMessage: This is not a GeoJSON geometry (expected a Point, LineString, Polygon or a Multi variant).
+            associatedItem: @P12_GEOJSON
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P12_GEOJSON
+        }
+    )
+    validation alpha-range (
+        name: Fill opacity range
+        execution {
+            sequence: 30
+        }
+        validation {
+            type: expression
+            language: plsql
+            plsqlExpression: :P12_POLY_ALPHA is null or to_number(:P12_POLY_ALPHA default null on conversion error) between 0 and 255
+        }
+        error {
+            errorMessage: Fill opacity is a number from 0 (transparent) to 255 (opaque).
+            associatedItem: @P12_POLY_ALPHA
+        }
+    )
+    validation width-range (
+        name: Line width range
+        execution {
+            sequence: 40
+        }
+        validation {
+            type: expression
+            language: plsql
+            plsqlExpression: :P12_LINE_WIDTH is null or to_number(:P12_LINE_WIDTH default null on conversion error) between 0 and 50
+        }
+        error {
+            errorMessage: Line width is a number from 0 to 50.
+            associatedItem: @P12_LINE_WIDTH
+        }
+    )
+    validation ext-data-json (
+        name: Extended data is a JSON object
+        execution {
+            sequence: 50
+        }
+        validation {
+            type: expression
+            language: plsql
+            plsqlExpression: pck_kmleon_tools.is_json_object(:P12_EXT_DATA) = 'Y'
+        }
+        error {
+            errorMessage: Extended data must be a JSON object such as {"category":"depot"}.
+            associatedItem: @P12_EXT_DATA
+        }
+    )
+
+    process fetch (
+        name: Load the feature
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_a kml_job_assets%rowtype;
+                begin
+                  if :P12_ASSET_ID is null then
+                    :P12_TITLE        := 'New feature';
+                    :P12_LINE_COLOR   := '#2563eb';
+                    :P12_LINE_WIDTH   := 2;
+                    :P12_POLY_COLOR   := '#2563eb';
+                    :P12_POLY_ALPHA   := 128;
+                    :P12_POLY_FILL    := 'Y';
+                    :P12_POLY_OUTLINE := 'Y';
+                    :P12_EXTRUDE      := 'N';
+                    :P12_TESSELLATE   := 'N';
+                    return;
+                  end if;
+                  -- the feature must belong to the job this dialog was opened for
+                  select * into l_a from kml_job_assets
+                   where asset_id = to_number(:P12_ASSET_ID)
+                     and job_id   = to_number(:P12_JOB_ID);
+                  :P12_TITLE        := 'Feature: ' || l_a.name;
+                  :P12_GEOJSON      := pck_kml_geom.map_geojson(l_a.geometry_sdo, l_a.geometry_geojson);
+                  :P12_NAME         := l_a.name;
+                  :P12_FOLDER       := l_a.folder_name;
+                  :P12_LINE_COLOR   := nvl(pck_kmleon_tools.kml_to_rgb(l_a.line_color), '#2563eb');
+                  :P12_LINE_WIDTH   := nvl(l_a.line_width, 2);
+                  :P12_POLY_COLOR   := nvl(pck_kmleon_tools.kml_to_rgb(l_a.poly_color), '#2563eb');
+                  :P12_POLY_ALPHA   := nvl(pck_kmleon_tools.kml_alpha(l_a.poly_color), 128);
+                  :P12_POLY_FILL    := nvl(l_a.poly_fill, 'Y');
+                  :P12_POLY_OUTLINE := nvl(l_a.poly_outline, 'Y');
+                  :P12_LABEL_COLOR  := pck_kmleon_tools.kml_to_rgb(l_a.label_color);
+                  :P12_LABEL_SCALE  := l_a.label_scale;
+                  :P12_ICON_HREF    := l_a.icon_href;
+                  :P12_ICON_SCALE   := l_a.icon_scale;
+                  :P12_ALTITUDE_MODE := l_a.altitude_mode;
+                  :P12_EXTRUDE      := nvl(l_a.extrude, 'N');
+                  :P12_TESSELLATE   := nvl(l_a.tessellate, 'N');
+                  :P12_EXT_DATA     := l_a.extended_data;
+                exception
+                  when no_data_found then
+                    raise_application_error(-20909, 'This feature does not belong to the current job.');
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    process code (
+        name: Build the developer snippets
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_snip clob;
+                  l_kml  clob;
+                  l_ras  clob;
+                  l_rjob clob;
+                begin
+                  pck_kmleon_tools.style_outputs(
+                    p_geojson => :P12_GEOJSON, p_name => :P12_NAME, p_folder_name => :P12_FOLDER,
+                    p_line_color => :P12_LINE_COLOR, p_line_width => :P12_LINE_WIDTH,
+                    p_poly_color => :P12_POLY_COLOR, p_poly_alpha => nvl(:P12_POLY_ALPHA, 128),
+                    p_poly_fill => :P12_POLY_FILL, p_poly_outline => :P12_POLY_OUTLINE,
+                    p_label_color => :P12_LABEL_COLOR, p_label_scale => :P12_LABEL_SCALE,
+                    p_icon_href => :P12_ICON_HREF, p_icon_scale => :P12_ICON_SCALE,
+                    p_altitude_mode => :P12_ALTITUDE_MODE, p_extrude => nvl(:P12_EXTRUDE, 'N'),
+                    p_tessellate => nvl(:P12_TESSELLATE, 'N'), p_extended_data => :P12_EXT_DATA,
+                    p_snippet => l_snip, p_kml_style => l_kml);
+                  pck_kmleon_tools.rest_outputs(
+                    p_job_id => to_number(:P12_JOB_ID),
+                    p_geojson => :P12_GEOJSON, p_name => :P12_NAME, p_folder_name => :P12_FOLDER,
+                    p_line_color => :P12_LINE_COLOR, p_line_width => :P12_LINE_WIDTH,
+                    p_poly_color => :P12_POLY_COLOR, p_poly_alpha => nvl(:P12_POLY_ALPHA, 128),
+                    p_poly_fill => :P12_POLY_FILL, p_poly_outline => :P12_POLY_OUTLINE,
+                    p_label_color => :P12_LABEL_COLOR, p_label_scale => :P12_LABEL_SCALE,
+                    p_icon_href => :P12_ICON_HREF, p_icon_scale => :P12_ICON_SCALE,
+                    p_altitude_mode => :P12_ALTITUDE_MODE, p_extrude => nvl(:P12_EXTRUDE, 'N'),
+                    p_tessellate => nvl(:P12_TESSELLATE, 'N'), p_extended_data => :P12_EXT_DATA,
+                    p_asset_rest => l_ras, p_job_rest => l_rjob);
+                  :P12_SNIPPET    := l_snip;
+                  :P12_KML_STYLE  := l_kml;
+                  :P12_REST_ASSET := l_ras;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+            point: beforeHeader
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P12_ASSET_ID is not null and apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    process save (
+        name: Save the feature
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_a     kml_job_assets%rowtype;
+                  l_line  varchar2(8) := case when :P12_LINE_COLOR  is not null then pck_kml_engine.rgba_to_kml(ltrim(:P12_LINE_COLOR, '#')) end;
+                  l_poly  varchar2(8) := case when :P12_POLY_COLOR  is not null then pck_kml_engine.rgba_to_kml(ltrim(:P12_POLY_COLOR, '#'), nvl(:P12_POLY_ALPHA, 128)) end;
+                  l_label varchar2(8) := case when :P12_LABEL_COLOR is not null then pck_kml_engine.rgba_to_kml(ltrim(:P12_LABEL_COLOR, '#')) end;
+                begin
+                  if :P12_ASSET_ID is null then
+                    :P12_ASSET_ID := pck_kml_job_api.add_asset(
+                      p_job_id           => to_number(:P12_JOB_ID),
+                      p_geometry_geojson => :P12_GEOJSON,
+                      p_name             => :P12_NAME,
+                      p_folder_name      => :P12_FOLDER,
+                      p_line_color       => l_line,
+                      p_line_width       => :P12_LINE_WIDTH,
+                      p_poly_color       => l_poly,
+                      p_poly_fill        => :P12_POLY_FILL,
+                      p_poly_outline     => :P12_POLY_OUTLINE,
+                      p_label_color      => l_label,
+                      p_label_scale      => :P12_LABEL_SCALE,
+                      p_icon_href        => :P12_ICON_HREF,
+                      p_icon_scale       => :P12_ICON_SCALE,
+                      p_altitude_mode    => :P12_ALTITUDE_MODE,
+                      p_extrude          => nvl(:P12_EXTRUDE, 'N'),
+                      p_tessellate       => nvl(:P12_TESSELLATE, 'N'),
+                      p_extended_data    => :P12_EXT_DATA);
+                  else
+                    -- keep description/visibility: the dialog has no fields for them
+                    select * into l_a from kml_job_assets
+                     where asset_id = to_number(:P12_ASSET_ID) and job_id = to_number(:P12_JOB_ID);
+                    pck_kml_job_assets_dml.upd(
+                      p_asset_id         => l_a.asset_id,
+                      p_description      => l_a.description,
+                      p_visibility       => l_a.visibility,
+                      p_display_order    => l_a.display_order,
+                      p_geometry_geojson => :P12_GEOJSON,
+                      p_name             => :P12_NAME,
+                      p_folder_name      => :P12_FOLDER,
+                      p_line_color       => l_line,
+                      p_line_width       => :P12_LINE_WIDTH,
+                      p_poly_color       => l_poly,
+                      p_poly_fill        => :P12_POLY_FILL,
+                      p_poly_outline     => :P12_POLY_OUTLINE,
+                      p_label_color      => l_label,
+                      p_label_scale      => :P12_LABEL_SCALE,
+                      p_icon_href        => :P12_ICON_HREF,
+                      p_icon_scale       => :P12_ICON_SCALE,
+                      p_altitude_mode    => :P12_ALTITUDE_MODE,
+                      p_extrude          => nvl(:P12_EXTRUDE, 'N'),
+                      p_tessellate       => nvl(:P12_TESSELLATE, 'N'),
+                      p_extended_data    => :P12_EXT_DATA,
+                      p_updated_by       => :APP_USER);
+                  end if;
+                  commit;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: processing
+        }
+        serverSideCondition {
+            type: request=Value
+            value: SAVE
+        }
+    )
+
+    process delete (
+        name: Delete the feature
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_n pls_integer;
+                begin
+                  select count(*) into l_n from kml_job_assets
+                   where asset_id = to_number(:P12_ASSET_ID) and job_id = to_number(:P12_JOB_ID);
+                  if l_n = 0 then
+                    raise_application_error(-20909, 'This feature does not belong to the current job.');
+                  end if;
+                  pck_kml_job_assets_dml.del(to_number(:P12_ASSET_ID));
+                  commit;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+            point: processing
+        }
+        serverSideCondition {
+            type: request=Value
+            value: DELETE
+        }
+    )
+
+    process close (
+        name: Close dialog
+        type: closeDialog
+        execution {
+            sequence: 30
+            point: processing
+        }
+        serverSideCondition {
+            type: requestIsContainedInValue
+            value: SAVE,DELETE
+        }
+    )
+
+    dynamicAction da-cancel (
+        name: Cancel
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @cancel
+        }
+        action cancel-dialog (
+            action: cancelDialog
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+
+    dynamicAction da-preview (
+        name: Refresh the preview on geometry change
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P12_GEOJSON
+        }
+        action refresh-preview (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @preview
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+
+    dynamicAction da-draw-point (
+        name: Draw a point
+        execution {
+            sequence: 30
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @draw-point
+        }
+        action js-point (
+            action: executeJsCode
+            settings {
+                jsCode: kmleonDraw.mode("Point");
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+    dynamicAction da-draw-line (
+        name: Draw a line
+        execution {
+            sequence: 40
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @draw-line
+        }
+        action js-line (
+            action: executeJsCode
+            settings {
+                jsCode: kmleonDraw.mode("LineString");
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+    dynamicAction da-draw-polygon (
+        name: Draw a polygon
+        execution {
+            sequence: 50
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @draw-polygon
+        }
+        action js-polygon (
+            action: executeJsCode
+            settings {
+                jsCode: kmleonDraw.mode("Polygon");
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+    dynamicAction da-draw-undo (
+        name: Undo the last point
+        execution {
+            sequence: 60
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @draw-undo
+        }
+        action js-undo (
+            action: executeJsCode
+            settings {
+                jsCode: kmleonDraw.undo();
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+    dynamicAction da-draw-clear (
+        name: Clear the geometry
+        execution {
+            sequence: 70
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @draw-clear
+        }
+        action js-clear (
+            action: executeJsCode
+            settings {
+                jsCode: kmleonDraw.clear();
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+)

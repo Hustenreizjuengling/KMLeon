@@ -1,0 +1,657 @@
+page 2 (
+    name: Job
+    alias: JOB
+    title: Job &P2_JOB_ID.
+    appearance {
+        pageMode: modalDialog
+        dialogTemplate: @/modal-dialog
+        templateOptions: #DEFAULT#
+    }
+    dialog {
+        width: 1000
+        height: 760
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        authorizationScheme: @IST_ADMIN
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region details (
+        name: Details
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: contentBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+            ]
+        }
+    )
+
+    pageItem P2_JOB_ID (
+        type: hidden
+        layout {
+            sequence: 1
+            region: @details
+            slot: regionBody
+        }
+    )
+
+    pageItem P2_DOCUMENT_NAME (
+        type: displayOnly
+        label {
+            label: Document
+        }
+        layout {
+            sequence: 10
+            region: @details
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P2_STATUS (
+        type: displayOnly
+        label {
+            label: Status
+        }
+        layout {
+            sequence: 20
+            region: @details
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P2_SOURCE (
+        type: displayOnly
+        label {
+            label: Source / format
+        }
+        layout {
+            sequence: 30
+            region: @details
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P2_COUNTS (
+        type: displayOnly
+        label {
+            label: Features / result size
+        }
+        layout {
+            sequence: 40
+            region: @details
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P2_TIMES (
+        type: displayOnly
+        label {
+            label: Created / started / finished
+        }
+        layout {
+            sequence: 50
+            region: @details
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P2_NOTIFY (
+        type: displayOnly
+        label {
+            label: Notification
+        }
+        layout {
+            sequence: 60
+            region: @details
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+    )
+
+    pageItem P2_ERROR (
+        type: textarea
+        label {
+            label: Error
+        }
+        layout {
+            sequence: 70
+            region: @details
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            height: 3
+        }
+        readOnly {
+            type: always
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P2_ERROR
+        }
+    )
+
+    region map (
+        name: Map
+        type: map
+        layout {
+            sequence: 20
+            slot: contentBody
+            columnSpan: 6
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+                t-Region--noPadding
+            ]
+        }
+        map {
+            height: 320
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            type: basedOnSpatialResults
+        }
+        attributes {
+            messagesPosition: below
+        }
+
+        layer features (
+            name: Features
+            label {
+                label: Features
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select * from (
+                    select asset_id as id, name, pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets where job_id = to_number(:P2_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
+                    ```
+                pageItemsToSubmit: P2_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer features_lines (
+            layerType: lines
+            name: Features (lines)
+            label {
+                label: Lines
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select * from (
+                    select asset_id as id, name, pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets where job_id = to_number(:P2_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
+                    ```
+                pageItemsToSubmit: P2_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer features_polygons (
+            layerType: polygons
+            name: Features (polygons)
+            label {
+                label: Polygons
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select * from (
+                    select asset_id as id, name, pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets where job_id = to_number(:P2_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
+                    ```
+                pageItemsToSubmit: P2_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+                fillOpacity: 0.35
+                strokeColor: #2563eb
+                strokeWidth: 2
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    region assets (
+        name: Features
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select asset_id, name, folder_name,
+                       case when geometry_sdo is not null then 'SDO' else 'GeoJSON' end as geometry,
+                       line_color, poly_color, visibility
+                  from kml_job_assets
+                 where job_id = to_number(:P2_JOB_ID)
+                 order by folder_name nulls first, display_order, asset_id
+                ```
+            pageItemsToSubmit: P2_JOB_ID
+        }
+        layout {
+            sequence: 30
+            slot: contentBody
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        messages {
+            whenNoDataFound: No stored features -- a finished job keeps only its result (DELETE_ASSETS_AFTER_SUCCESS).
+        }
+
+        column ASSET_ID (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Id
+            }
+            layout {
+                sequence: 10
+            }
+        )
+        column NAME (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Name
+            }
+            layout {
+                sequence: 20
+            }
+        )
+        column FOLDER_NAME (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Folder
+            }
+            layout {
+                sequence: 30
+            }
+        )
+        column GEOMETRY (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Geometry
+            }
+            layout {
+                sequence: 40
+            }
+        )
+        column LINE_COLOR (
+            reportColumnQueryId: 5
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Line
+            }
+            layout {
+                sequence: 50
+            }
+        )
+        column POLY_COLOR (
+            reportColumnQueryId: 6
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Fill
+            }
+            layout {
+                sequence: 60
+            }
+        )
+        column VISIBILITY (
+            reportColumnQueryId: 7
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Visible
+            }
+            layout {
+                sequence: 70
+            }
+        )
+    )
+
+    region footer (
+        name: Actions
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: dialogFooter
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    button run (
+        buttonName: RUN
+        label: &P2_RUN_LABEL.
+        layout {
+            sequence: 10
+            region: @footer
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            icon: fa-play
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: submitPage
+            executeValidations: false
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P2_STATUS not in ('RUNNING', 'PENDING')
+        }
+    )
+
+    pageItem P2_RUN_LABEL (
+        type: hidden
+        layout {
+            sequence: 2
+            region: @details
+            slot: regionBody
+        }
+    )
+
+    button cancel-job (
+        buttonName: CANCEL_JOB
+        label: Cancel job
+        layout {
+            sequence: 20
+            region: @footer
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-ban
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: submitPage
+            executeValidations: false
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Cancel this job?
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P2_STATUS in ('DRAFT', 'PENDING')
+        }
+    )
+
+    button delete-job (
+        buttonName: DELETE_JOB
+        label: Delete
+        layout {
+            sequence: 30
+            region: @footer
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-trash
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+                t-Button--danger
+            ]
+        }
+        behavior {
+            action: submitPage
+            executeValidations: false
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Delete this job with all its features and its result? This cannot be undone.
+            style: danger
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P2_STATUS not in ('RUNNING', 'PENDING')
+        }
+    )
+
+    button download (
+        buttonName: DOWNLOAD
+        label: Download result
+        layout {
+            sequence: 40
+            region: @footer
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-download
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 9
+                items: {
+                    P9_JOB_ID: &P2_JOB_ID.
+                }
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P2_STATUS = 'COMPLETED'
+        }
+    )
+
+    button open-editor (
+        buttonName: OPEN_EDITOR
+        label: Open in editor
+        layout {
+            sequence: 50
+            region: @footer
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-pencil
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 11
+                items: {
+                    P11_JOB_ID: &P2_JOB_ID.
+                }
+            }
+        }
+    )
+
+    process fetch (
+        name: Fetch job
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  r kml_jobs%rowtype;
+                begin
+                  r := pck_kml_jobs_dml.get(to_number(:P2_JOB_ID));
+                  :P2_DOCUMENT_NAME := r.document_name;
+                  :P2_STATUS        := r.status;
+                  :P2_SOURCE        := r.source_type || case when r.source_type = 'QUERY' then ' (' || r.source_mode || ')' end || ' / ' || r.output_format;
+                  :P2_COUNTS        := nvl(to_char(r.asset_count), '-') || ' features / ' || nvl(to_char(round(r.result_size_bytes / 1024, 1)) || ' KB', '-');
+                  :P2_TIMES         := to_char(r.created_at, 'YYYY-MM-DD HH24:MI') || ' / ' || nvl(to_char(r.started_at, 'HH24:MI:SS'), '-') || ' / ' || nvl(to_char(r.finished_at, 'HH24:MI:SS'), '-');
+                  :P2_NOTIFY        := nvl(r.notify_email, case when r.user_id is not null then r.user_tab || ':' || r.user_id else 'none' end)
+                                       || case when r.notified_at is not null then ' (notified ' || to_char(r.notified_at, 'HH24:MI') || ')' end;
+                  :P2_ERROR         := r.error_message;
+                  :P2_RUN_LABEL     := case when r.status in ('COMPLETED', 'FAILED', 'CANCELLED') then 'Re-run' else 'Run now' end;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    process act (
+        name: Job action
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  case :REQUEST
+                    when 'RUN'        then pck_kml_job_api.run_now(to_number(:P2_JOB_ID));
+                    when 'CANCEL_JOB' then pck_kml_job_api.cancel_job(to_number(:P2_JOB_ID));
+                    when 'DELETE_JOB' then pck_kml_job_api.delete_job(to_number(:P2_JOB_ID));
+                    else null;
+                  end case;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: processing
+        }
+        serverSideCondition {
+            type: requestIsContainedInValue
+            value: RUN,CANCEL_JOB,DELETE_JOB
+        }
+        successMessage {
+            successMessage: Done.
+        }
+    )
+
+    process close (
+        name: Close dialog
+        type: closeDialog
+        execution {
+            sequence: 20
+            point: processing
+        }
+        serverSideCondition {
+            type: requestIsContainedInValue
+            value: DELETE_JOB
+        }
+    )
+
+)

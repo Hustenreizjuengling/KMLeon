@@ -10,6 +10,15 @@ reports it, and `tests/smoke_test_version.sql` fails when the stamp is stale.
 
 ## [Unreleased]
 
+### Added
+- `apex_toolkit_v2/`: preview of a native-APEX rework of the toolkit as a separate
+  application (id 1200, alias `kmleon2`, version `2.0.0-preview`): side navigation,
+  Job and Feature modal dialogs, Cards-based *My maps*, one Editor page for admins
+  and access-key visitors (authorization `EDITOR_ACCESS`), declarative validations,
+  application error handler. Custom JavaScript shrinks from ~820 inline lines to one
+  70-line static draw helper.
+- `PCK_KMLEON_TOOLS`: `apex_error_handler`, `is_json_object`, `geojson_type`.
+
 ## [1.3.0] – 2026-11-01
 
 Result of a deliberate break-it campaign (API edge cases, hostile text, corrupt

@@ -1,0 +1,601 @@
+page 1 (
+    name: Dashboard
+    alias: HOME
+    title: KMLeon · Dashboard
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+    }
+    security {
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    button new-job (
+        buttonName: NEW_JOB
+        label: New job
+        layout {
+            sequence: 1
+            slot: body
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 3
+            }
+        }
+    )
+
+    button process-pending (
+        buttonName: PROCESS_PENDING
+        label: Process PENDING
+        layout {
+            sequence: 2
+            slot: body
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: definedByDynamicAction
+        }
+    )
+
+    region metrics (
+        name: Overview
+        type: cards
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select 1 as id, 'Total jobs' as title, to_char(count(*)) as val, 'fa-list-alt' as icon from kml_jobs
+                union all
+                select 2, 'Completed', to_char(count(case when status = 'COMPLETED' then 1 end)), 'fa-check-circle' from kml_jobs
+                union all
+                select 3, 'Failed', to_char(count(case when status = 'FAILED' then 1 end)), 'fa-exclamation-triangle' from kml_jobs
+                union all
+                select 4, 'Pending / running', to_char(count(case when status in ('PENDING','RUNNING') then 1 end)), 'fa-clock-o' from kml_jobs
+                union all
+                select 5, 'Last created',   nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-plus-circle'    from kml_config where config_key = 'METRIC_LAST_JOB_CREATED_AT'
+                union all
+                select 6, 'Last completed', nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-flag-checkered' from kml_config where config_key = 'METRIC_LAST_JOB_COMPLETED_AT'
+                union all
+                select 7, 'Last failed',    nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-times-circle'   from kml_config where config_key = 'METRIC_LAST_JOB_FAILED_AT'
+                union all
+                select 8, 'Last cleanup',   nvl(to_char(value_timestamp, 'YYYY-MM-DD HH24:MI'), '--'), 'fa-trash-o'        from kml_config where config_key = 'METRIC_LAST_CLEANUP_AT'
+                order by id
+                ```
+        }
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/cards-container
+            templateOptions: [
+                #DEFAULT#
+                t-CardsRegion--removeHeader js-removeLandmark
+            ]
+        }
+        card {
+            primaryKeyColumn1: ID
+        }
+        title {
+            column: TITLE
+        }
+        body {
+            column: VAL
+        }
+        iconAndBadge {
+            iconSource: iconClassColumn
+            iconColumn: ICON
+        }
+        componentAppearance {
+            gridColumns: 4
+        }
+    )
+
+    region map (
+        name: Latest features on the map
+        type: map
+        layout {
+            sequence: 40
+            slot: body
+            columnSpan: 4
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: kmleon-map
+        }
+        map {
+            height: 420
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                rectangleZoom
+                scaleBar
+                overviewMap
+            ]
+        }
+        initialPositionAndZoom {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                -- centre + zoom from the extent of the displayed assets (same job rule as the
+                -- layers); falls back to Germany when the job has no assets
+                with g as (
+                  select pck_kml_geom.to_sdo_wgs84(geometry_sdo, geometry_geojson) as geom
+                    from kml_job_assets
+                   where job_id = (select max(job_id) from kml_job_assets)
+                ), m as (
+                  select sdo_aggr_mbr(geom) as mbr from g
+                ), e as (
+                  select sdo_geom.sdo_min_mbr_ordinate(mbr, 1) as x1, sdo_geom.sdo_max_mbr_ordinate(mbr, 1) as x2,
+                         sdo_geom.sdo_min_mbr_ordinate(mbr, 2) as y1, sdo_geom.sdo_max_mbr_ordinate(mbr, 2) as y2
+                    from m where mbr is not null
+                )
+                select nvl((x1 + x2) / 2, 10.4) as map_lon,
+                       nvl((y1 + y2) / 2, 51.1) as map_lat,
+                       case when x1 is null then 4
+                            when greatest(x2 - x1, y2 - y1) > 20 then 3
+                            when greatest(x2 - x1, y2 - y1) > 5  then 5
+                            when greatest(x2 - x1, y2 - y1) > 1  then 6
+                            when greatest(x2 - x1, y2 - y1) > 0.2 then 8
+                            else 11 end as zoom_level
+                  from dual left join e on 1 = 1
+                ```
+            geometryColumnDataType: longitudeLatitude
+            initialLongitudeColumn: MAP_LON
+            initialLatitudeColumn: MAP_LAT
+            initialZoomlevelColumn: ZOOM_LEVEL
+        }
+        attributes {
+            messagesPosition: below
+        }
+
+        layer features (
+            name: Features
+            label {
+                label: Features
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- points only: lines/polygons have their own layers below
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets
+                     where job_id = (select max(job_id) from kml_job_assets)   -- newest job that still has features
+                    ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
+                    ```
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer features_lines (
+            layerType: lines
+            name: Features (lines)
+            label {
+                label: Features (lines)
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- lines only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets
+                     where job_id = (select max(job_id) from kml_job_assets)   -- newest job that still has features
+                    ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
+                    ```
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer features_polygons (
+            layerType: polygons
+            name: Features (polygons)
+            label {
+                label: Features (polygons)
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- polygons only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets
+                     where job_id = (select max(job_id) from kml_job_assets)   -- newest job that still has features
+                    ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
+                    ```
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+                fillOpacity: 0.35
+                strokeColor: #2563eb
+                strokeWidth: 2
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    region jobs (
+        name: Jobs
+        type: interactiveReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select job_id,
+                       document_name,
+                       status,
+                       case status
+                         when 'COMPLETED' then 'u-success'
+                         when 'FAILED'    then 'u-danger'
+                         when 'RUNNING'   then 'u-warning'
+                         when 'PENDING'   then 'u-info'
+                         else 'u-normal'
+                       end as status_css,
+                       output_format,
+                       source_type,
+                       asset_count,
+                       result_size_bytes,
+                       notify_email,
+                       created_at,
+                       finished_at,
+                       error_message
+                  from kml_jobs
+                 order by job_id desc
+                ```
+        }
+        layout {
+            sequence: 30
+            slot: body
+            columnSpan: 8
+            startNewRow: true
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        link {
+            linkColumn: customTarget
+            target: {
+                page: 2
+                items: {
+                    P2_JOB_ID: #JOB_ID#
+                }
+            }
+        }
+
+        column JOB_ID (
+            type: plainText
+            heading {
+                heading: Job
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column DOCUMENT_NAME (
+            type: plainText
+            heading {
+                heading: Document
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column STATUS (
+            type: plainText
+            heading {
+                heading: Status
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                dataType: STRING
+            }
+            columnFormatting {
+                htmlExpression: <span class='t-Badge #STATUS_CSS#'>#STATUS#</span>
+            }
+        )
+        column STATUS_CSS (
+            type: hidden
+            heading {
+                heading: Status CSS
+            }
+            layout {
+                sequence: 35
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column OUTPUT_FORMAT (
+            type: plainText
+            heading {
+                heading: Format
+            }
+            layout {
+                sequence: 40
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column SOURCE_TYPE (
+            type: plainText
+            heading {
+                heading: Source
+            }
+            layout {
+                sequence: 50
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column ASSET_COUNT (
+            type: plainText
+            heading {
+                heading: Assets
+            }
+            layout {
+                sequence: 60
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column RESULT_SIZE_BYTES (
+            type: plainText
+            heading {
+                heading: Size
+            }
+            layout {
+                sequence: 70
+            }
+            source {
+                dataType: NUMBER
+            }
+        )
+        column NOTIFY_EMAIL (
+            type: plainText
+            heading {
+                heading: Notify
+            }
+            layout {
+                sequence: 80
+            }
+            source {
+                dataType: STRING
+            }
+        )
+        column CREATED_AT (
+            type: plainText
+            heading {
+                heading: Created
+            }
+            layout {
+                sequence: 90
+            }
+            source {
+                dataType: DATE
+            }
+        )
+        column FINISHED_AT (
+            type: plainText
+            heading {
+                heading: Finished
+            }
+            layout {
+                sequence: 100
+            }
+            source {
+                dataType: DATE
+            }
+        )
+        column ERROR_MESSAGE (
+            type: plainText
+            heading {
+                heading: Error
+            }
+            layout {
+                sequence: 110
+            }
+            source {
+                dataType: STRING
+            }
+        )
+    )
+
+    dynamicAction da-process-pending (
+        name: Process pending
+        execution {
+            sequence: 10
+        }
+        when {
+            event: click
+            selectionType: button
+            button: @process-pending
+        }
+
+        action run-pending (
+            action: executeServerSideCode
+            settings {
+                plsqlCode:
+                    ```plsql
+                    pck_kml_engine.process_pending;
+                    ```
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-jobs (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @jobs
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+        action notify-done (
+            action: showSuccessMessage
+            settings {
+                message: Pending jobs processed.
+            }
+            execution {
+                sequence: 30
+                fireOnInit: false
+            }
+        )
+
+    )
+
+    dynamicAction da-dialog-closed (
+        name: Refresh after job dialog
+        execution {
+            sequence: 40
+        }
+        when {
+            event: apexafterclosedialog
+            selectionType: region
+            region: @jobs
+        }
+
+        action refresh-jobs (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @jobs
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+        action refresh-metrics (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @metrics
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+
+    )
+
+
+    branch non-admins-to-my-maps (
+        name: Non-admins land on My maps
+        execution {
+            sequence: 1
+            point: beforeHeader
+        }
+        behavior {
+            type: pageOrUrl
+            target: {
+                page: 110
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: not apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+)
