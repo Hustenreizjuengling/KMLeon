@@ -103,6 +103,12 @@ as
   -- p_text is not valid JSON or has no type. Used by the toolkit's validations.
   function geojson_type(p_text in clob) return varchar2;
 
+  -- Start position for an APEX Map region: '{"lon":..,"lat":..,"zoom":..}' centred
+  -- on the bounding box of a job's features (p_job_id) or of a GeoJSON text
+  -- (p_geojson: geometry, Feature or FeatureCollection). Falls back to a Europe
+  -- overview when there is nothing to show, so an empty map never opens at 0/0.
+  function map_start(p_job_id in number default null, p_geojson in clob default null) return varchar2;
+
   -- Convert a KML aabbggrr color back to an HTML #RRGGBB string (for loading a
   -- stored asset's color into a color picker). Returns NULL on bad input.
   function kml_to_rgb(p_kml in varchar2) return varchar2;
@@ -651,6 +657,66 @@ as
     when others then
       return null;
   end geojson_type;
+
+
+  function map_start(p_job_id in number default null, p_geojson in clob default null) return varchar2 is
+    l_minx number; l_miny number; l_maxx number; l_maxy number;
+    l_ext  number; l_zoom pls_integer;
+
+    -- scan one GeoJSON *geometry* text (only "type" and "coordinates", so every
+    -- number is a coordinate) and widen the bounding box by its lon/lat pairs
+    procedure scan(p_geom in clob) is
+      l_txt varchar2(32767);
+      l_i   pls_integer := 1;
+      l_tup varchar2(200);
+      l_lon number; l_lat number;
+    begin
+      if p_geom is null then return; end if;
+      l_txt := dbms_lob.substr(p_geom, 32000, 1);
+      loop
+        -- every innermost [..] is one position: lon, lat and an optional altitude
+        l_tup := regexp_substr(l_txt, '\[[^][]+\]', 1, l_i);
+        exit when l_tup is null;
+        l_lon := to_number(regexp_substr(l_tup, '-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?', 1, 1) default null on conversion error,
+                           '99999999999.99999999999999', 'NLS_NUMERIC_CHARACTERS=''.,''');
+        l_lat := to_number(regexp_substr(l_tup, '-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?', 1, 2) default null on conversion error,
+                           '99999999999.99999999999999', 'NLS_NUMERIC_CHARACTERS=''.,''');
+        if l_lon between -180 and 180 and l_lat between -90 and 90 then
+          l_minx := least(nvl(l_minx, l_lon), l_lon); l_maxx := greatest(nvl(l_maxx, l_lon), l_lon);
+          l_miny := least(nvl(l_miny, l_lat), l_lat); l_maxy := greatest(nvl(l_maxy, l_lat), l_lat);
+        end if;
+        l_i := l_i + 1;
+      end loop;
+    exception
+      when others then null;   -- a malformed text simply contributes nothing
+    end scan;
+  begin
+    if p_job_id is not null then
+      for r in (select pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as g
+                  from kml_job_assets where job_id = p_job_id) loop
+        scan(r.g);
+      end loop;
+    elsif p_geojson is not null and p_geojson is json then
+      case json_value(p_geojson, '$.type')
+        when 'FeatureCollection' then
+          for r in (select g from json_table(p_geojson, '$.features[*].geometry' columns (g clob format json path '$'))) loop
+            scan(r.g);
+          end loop;
+        when 'Feature' then
+          scan(json_query(p_geojson, '$.geometry' returning clob));
+        else
+          scan(p_geojson);
+      end case;
+    end if;
+    if l_minx is null then
+      return '{"lon":10,"lat":51,"zoom":3}';
+    end if;
+    l_ext  := greatest(l_maxx - l_minx, (l_maxy - l_miny) * 1.6, 0.003);
+    l_zoom := greatest(1, least(15, floor(log(2, 360 / l_ext)) - 1));
+    return '{"lon":' || to_char((l_minx + l_maxx) / 2, 'FM9990.000000', 'NLS_NUMERIC_CHARACTERS=''.,''')
+        || ',"lat":' || to_char((l_miny + l_maxy) / 2, 'FM990.000000', 'NLS_NUMERIC_CHARACTERS=''.,''')
+        || ',"zoom":' || l_zoom || '}';
+  end map_start;
 
 
   function apex_error_handler(p_error in apex_error.t_error) return apex_error.t_error_result is

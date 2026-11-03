@@ -9,7 +9,7 @@ page 2 (
     }
     dialog {
         width: 1000
-        height: 760
+        height: 660
     }
     navigation {
         cursorFocus: doNotFocusCursor
@@ -187,7 +187,16 @@ page 2 (
             ]
         }
         initialPositionAndZoom {
-            type: basedOnSpatialResults
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select json_value(s, '$.lon' returning number) as map_lon, json_value(s, '$.lat' returning number) as map_lat, json_value(s, '$.zoom' returning number) as zoom_level
+                  from (select pck_kmleon_tools.map_start(p_job_id => to_number(:P2_JOB_ID)) as s from dual)
+                ```
+            geometryColumnDataType: longitudeLatitude
+            initialLongitudeColumn: MAP_LON
+            initialLatitudeColumn: MAP_LAT
+            initialZoomlevelColumn: ZOOM_LEVEL
         }
         attributes {
             messagesPosition: below
@@ -442,6 +451,7 @@ page 2 (
             icon: fa-play
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -477,6 +487,7 @@ page 2 (
             icon: fa-ban
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -507,6 +518,7 @@ page 2 (
             icon: fa-trash
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
                 t-Button--danger
             ]
@@ -539,6 +551,7 @@ page 2 (
             icon: fa-download
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -570,6 +583,7 @@ page 2 (
             icon: fa-pencil
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }

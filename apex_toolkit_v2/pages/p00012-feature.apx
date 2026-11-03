@@ -108,6 +108,7 @@ page 12 (
             icon: fa-map-marker
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -131,6 +132,7 @@ page 12 (
             icon: fa-share-alt
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -154,6 +156,7 @@ page 12 (
             icon: fa-square-o
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -177,6 +180,7 @@ page 12 (
             icon: fa-undo
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -197,6 +201,7 @@ page 12 (
             icon: fa-eraser
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -234,7 +239,16 @@ page 12 (
             ]
         }
         initialPositionAndZoom {
-            type: basedOnSpatialResults
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select json_value(s, '$.lon' returning number) as map_lon, json_value(s, '$.lat' returning number) as map_lat, json_value(s, '$.zoom' returning number) as zoom_level
+                  from (select pck_kmleon_tools.map_start(p_geojson => :P12_GEOJSON) as s from dual)
+                ```
+            geometryColumnDataType: longitudeLatitude
+            initialLongitudeColumn: MAP_LON
+            initialLatitudeColumn: MAP_LAT
+            initialZoomlevelColumn: ZOOM_LEVEL
         }
         attributes {
             messagesPosition: below

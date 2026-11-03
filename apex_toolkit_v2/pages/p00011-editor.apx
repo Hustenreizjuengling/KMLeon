@@ -86,6 +86,7 @@ page 11 (
             buttonTemplate: @/text-with-icon
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
             icon: fa-plus
@@ -149,6 +150,26 @@ page 11 (
         }
     )
 
+    region actions (
+        name: Actions
+        type: staticContent
+        layout {
+            sequence: 18
+            slot: body
+        }
+        advanced {
+            htmlDomId: actions
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P11_JOB_ID
+        }
+    )
+
     region map (
         name: &P11_DOC_NAME.
         type: map
@@ -174,11 +195,19 @@ page 11 (
             options: [
                 mousewheelZoom
                 scaleBar
-                overviewMap
             ]
         }
         initialPositionAndZoom {
-            type: basedOnSpatialResults
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select json_value(s, '$.lon' returning number) as map_lon, json_value(s, '$.lat' returning number) as map_lat, json_value(s, '$.zoom' returning number) as zoom_level
+                  from (select pck_kmleon_tools.map_start(p_job_id => to_number(:P11_JOB_ID)) as s from dual)
+                ```
+            geometryColumnDataType: longitudeLatitude
+            initialLongitudeColumn: MAP_LON
+            initialLatitudeColumn: MAP_LAT
+            initialZoomlevelColumn: ZOOM_LEVEL
         }
         attributes {
             messagesPosition: below
@@ -332,14 +361,15 @@ page 11 (
         label: Add feature
         layout {
             sequence: 10
-            region: @map
-            slot: edit
+            region: @actions
+            slot: next
         }
         appearance {
             buttonTemplate: @/text-with-icon
             icon: fa-plus
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
             hot: true
@@ -361,14 +391,15 @@ page 11 (
         label: Run job
         layout {
             sequence: 20
-            region: @map
-            slot: edit
+            region: @actions
+            slot: next
         }
         appearance {
             buttonTemplate: @/text-with-icon
             icon: fa-play
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -391,14 +422,15 @@ page 11 (
         label: Download
         layout {
             sequence: 30
-            region: @map
-            slot: edit
+            region: @actions
+            slot: next
         }
         appearance {
             buttonTemplate: @/text-with-icon
             icon: fa-download
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -424,14 +456,15 @@ page 11 (
         label: Job details
         layout {
             sequence: 40
-            region: @map
-            slot: edit
+            region: @actions
+            slot: previous
         }
         appearance {
             buttonTemplate: @/text-with-icon
             icon: fa-info-circle
             templateOptions: [
                 #DEFAULT#
+                t-Button--mobileHideLabel
                 t-Button--iconLeft
             ]
         }
@@ -458,7 +491,11 @@ page 11 (
             type: sqlQuery
             sqlQuery:
                 ```sql
-                select asset_id, name, folder_name,
+                select asset_id,
+                       case when name is null then '(unnamed feature ' || asset_id || ')'
+                            when length(name) > 60 then substr(name, 1, 57) || '...'
+                            else name end as name,
+                       substr(folder_name, 1, 40) as folder_name,
                        json_value(pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson), '$.type') as geom
                   from kml_job_assets
                  where job_id = to_number(:P11_JOB_ID)
@@ -675,15 +712,15 @@ page 11 (
         )
     )
 
-    dynamicAction da-dialog-closed-map (
-        name: Refresh after the feature dialog closes (map)
+    dynamicAction da-dialog-closed (
+        name: Refresh after the feature dialog closes
         execution {
             sequence: 20
         }
         when {
             event: apexafterclosedialog
-            selectionType: region
-            region: @map
+            selectionType: jQuerySelector
+            jquerySelector: #actions, #map, #features
         }
         action refresh-map (
             action: refresh
@@ -709,37 +746,4 @@ page 11 (
         )
     )
 
-    dynamicAction da-dialog-closed-list (
-        name: Refresh after the feature dialog closes (list)
-        execution {
-            sequence: 30
-        }
-        when {
-            event: apexafterclosedialog
-            selectionType: region
-            region: @features
-        }
-        action refresh-map2 (
-            action: refresh
-            affectedElements {
-                selectionType: region
-                region: @map
-            }
-            execution {
-                sequence: 10
-                fireOnInit: false
-            }
-        )
-        action refresh-features2 (
-            action: refresh
-            affectedElements {
-                selectionType: region
-                region: @features
-            }
-            execution {
-                sequence: 20
-                fireOnInit: false
-            }
-        )
-    )
 )

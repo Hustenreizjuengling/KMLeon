@@ -19,7 +19,8 @@ page 1 (
         label: New job
         layout {
             sequence: 1
-            slot: body
+            region: @jobs
+            slot: edit
         }
         appearance {
             buttonTemplate: @/text-with-icon
@@ -39,10 +40,11 @@ page 1 (
 
     button process-pending (
         buttonName: PROCESS_PENDING
-        label: Process PENDING
+        label: Process pending jobs
         layout {
             sequence: 2
-            slot: body
+            region: @jobs
+            slot: edit
         }
         appearance {
             buttonTemplate: @/text-with-icon
@@ -52,7 +54,19 @@ page 1 (
             ]
         }
         behavior {
-            action: definedByDynamicAction
+            action: submitPage
+            executeValidations: false
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Build all PENDING jobs now? This runs in your session and may take a while.
+        }
+        serverSideCondition {
+            type: rowsReturned
+            sqlQuery:
+                ```sql
+                select 1 from kml_jobs where status = 'PENDING'
+                ```
         }
     )
 
@@ -97,10 +111,10 @@ page 1 (
             primaryKeyColumn1: ID
         }
         title {
-            column: TITLE
-        }
-        body {
             column: VAL
+        }
+        subtitle {
+            column: TITLE
         }
         iconAndBadge {
             iconSource: iconClassColumn
@@ -117,8 +131,6 @@ page 1 (
         layout {
             sequence: 40
             slot: body
-            columnSpan: 4
-            startNewRow: false
         }
         appearance {
             template: @/standard
@@ -131,42 +143,21 @@ page 1 (
             htmlDomId: kmleon-map
         }
         map {
-            height: 420
+            height: 340
         }
         controls {
             options: [
                 mousewheelZoom
                 rectangleZoom
                 scaleBar
-                overviewMap
             ]
         }
         initialPositionAndZoom {
             type: sqlQuery
             sqlQuery:
                 ```sql
-                -- centre + zoom from the extent of the displayed assets (same job rule as the
-                -- layers); falls back to Germany when the job has no assets
-                with g as (
-                  select pck_kml_geom.to_sdo_wgs84(geometry_sdo, geometry_geojson) as geom
-                    from kml_job_assets
-                   where job_id = (select max(job_id) from kml_job_assets)
-                ), m as (
-                  select sdo_aggr_mbr(geom) as mbr from g
-                ), e as (
-                  select sdo_geom.sdo_min_mbr_ordinate(mbr, 1) as x1, sdo_geom.sdo_max_mbr_ordinate(mbr, 1) as x2,
-                         sdo_geom.sdo_min_mbr_ordinate(mbr, 2) as y1, sdo_geom.sdo_max_mbr_ordinate(mbr, 2) as y2
-                    from m where mbr is not null
-                )
-                select nvl((x1 + x2) / 2, 10.4) as map_lon,
-                       nvl((y1 + y2) / 2, 51.1) as map_lat,
-                       case when x1 is null then 4
-                            when greatest(x2 - x1, y2 - y1) > 20 then 3
-                            when greatest(x2 - x1, y2 - y1) > 5  then 5
-                            when greatest(x2 - x1, y2 - y1) > 1  then 6
-                            when greatest(x2 - x1, y2 - y1) > 0.2 then 8
-                            else 11 end as zoom_level
-                  from dual left join e on 1 = 1
+                select json_value(s, '$.lon' returning number) as map_lon, json_value(s, '$.lat' returning number) as map_lat, json_value(s, '$.zoom' returning number) as zoom_level
+                  from (select pck_kmleon_tools.map_start(p_job_id => (select max(job_id) from kml_job_assets)) as s from dual)
                 ```
             geometryColumnDataType: longitudeLatitude
             initialLongitudeColumn: MAP_LON
@@ -326,8 +317,6 @@ page 1 (
         layout {
             sequence: 30
             slot: body
-            columnSpan: 8
-            startNewRow: true
         }
         appearance {
             template: @/standard
@@ -492,54 +481,42 @@ page 1 (
         )
     )
 
-    dynamicAction da-process-pending (
-        name: Process pending
+    process process-pending (
+        name: Process pending jobs
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  pck_kml_engine.process_pending;
+                end;
+                ```
+        }
         execution {
             sequence: 10
+            point: processing
         }
-        when {
-            event: click
-            selectionType: button
-            button: @process-pending
+        serverSideCondition {
+            type: request=Value
+            value: PROCESS_PENDING
         }
+        successMessage {
+            successMessage: Pending jobs processed.
+        }
+    )
 
-        action run-pending (
-            action: executeServerSideCode
-            settings {
-                plsqlCode:
-                    ```plsql
-                    pck_kml_engine.process_pending;
-                    ```
+    branch to-self (
+        name: Reload the dashboard
+        execution {
+            sequence: 10
+            point: afterProcessing
+        }
+        behavior {
+            type: pageOrUrl
+            target: {
+                page: 1
             }
-            execution {
-                sequence: 10
-                fireOnInit: false
-            }
-        )
-
-        action refresh-jobs (
-            action: refresh
-            affectedElements {
-                selectionType: region
-                region: @jobs
-            }
-            execution {
-                sequence: 20
-                fireOnInit: false
-            }
-        )
-
-        action notify-done (
-            action: showSuccessMessage
-            settings {
-                message: Pending jobs processed.
-            }
-            execution {
-                sequence: 30
-                fireOnInit: false
-            }
-        )
-
+        }
     )
 
     dynamicAction da-dialog-closed (

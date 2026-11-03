@@ -230,8 +230,8 @@ page 10 (
         label: Analyze
         layout {
             sequence: 50
-            region: @input
-            slot: regionBody
+            region: @actions
+            slot: next
         }
         appearance {
             buttonTemplate: @/text-with-icon
@@ -252,9 +252,8 @@ page 10 (
         label: Create test job and run async
         layout {
             sequence: 60
-            region: @input
-            slot: regionBody
-            startNewRow: false
+            region: @actions
+            slot: next
         }
         appearance {
             buttonTemplate: @/text-with-icon
@@ -266,6 +265,19 @@ page 10 (
         }
         behavior {
             action: definedByDynamicAction
+        }
+    )
+
+    region actions (
+        name: Actions
+        type: staticContent
+        layout {
+            sequence: 11
+            slot: body
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
         }
     )
 

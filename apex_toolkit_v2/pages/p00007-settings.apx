@@ -171,8 +171,8 @@ page 7 (
         label: Save and apply schedule
         layout {
             sequence: 50
-            region: @cfg
-            slot: regionBody
+            region: @actions
+            slot: next
         }
         appearance {
             buttonTemplate: @/text-with-icon
@@ -193,8 +193,8 @@ page 7 (
         label: Run cleanup now
         layout {
             sequence: 60
-            region: @cfg
-            slot: regionBody
+            region: @actions
+            slot: previous
         }
         appearance {
             buttonTemplate: @/text-with-icon
@@ -211,6 +211,19 @@ page 7 (
         confirmation {
             message: Delete all jobs that match the retention rule now?
             style: warning
+        }
+    )
+
+    region actions (
+        name: Actions
+        type: staticContent
+        layout {
+            sequence: 11
+            slot: body
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
         }
     )
 

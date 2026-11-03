@@ -17,7 +17,8 @@ reports it, and `tests/smoke_test_version.sql` fails when the stamp is stale.
   and access-key visitors (authorization `EDITOR_ACCESS`), declarative validations,
   application error handler. Custom JavaScript shrinks from ~820 inline lines to one
   70-line static draw helper.
-- `PCK_KMLEON_TOOLS`: `apex_error_handler`, `is_json_object`, `geojson_type`.
+- `PCK_KMLEON_TOOLS`: `apex_error_handler`, `is_json_object`, `geojson_type`, `map_start`
+  (start position for Map regions: bounding box of a job or GeoJSON, Europe fallback).
 
 ## [1.3.0] – 2026-11-01
 
