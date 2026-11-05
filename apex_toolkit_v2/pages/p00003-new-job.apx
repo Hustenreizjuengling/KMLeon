@@ -1,0 +1,716 @@
+page 3 (
+    name: New job
+    alias: NEW-JOB
+    title: KMLeon · New job
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: firstItemOnPage
+    }
+    security {
+        authorizationScheme: @IST_ADMIN
+        pageAccessProtection: argumentsMustHaveChecksum
+        formAutoComplete: false
+    }
+
+    region job (
+        name: Job
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P3_DOCUMENT_NAME (
+        type: textField
+        label {
+            label: Document name
+        }
+        layout {
+            sequence: 10
+            region: @job
+            slot: regionBody
+            columnSpan: 6
+        }
+        appearance {
+            template: @/required-floating
+        }
+        validation {
+            valueRequired: true
+        }
+        help {
+            helpText: Shown as the KML document name in Google Earth and as the suggested file name.
+        }
+    )
+
+    pageItem P3_OUTPUT_FORMAT (
+        type: radioGroup
+        label {
+            label: Output
+        }
+        layout {
+            sequence: 20
+            region: @job
+            slot: regionBody
+            newColumn: true
+            columnSpan: 3
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            displayNullValue: false
+            sqlQuery:
+                ```sql
+                select d, r from (select 'KMZ (zipped)' as d, 'KMZ' as r, 1 as o from dual union all select 'KML (text)' as d, 'KML' as r, 2 as o from dual) order by o
+                ```
+        }
+        default {
+            type: static
+            staticValue: KMZ
+        }
+    )
+
+    pageItem P3_NOTIFY_EMAIL (
+        type: textField
+        label {
+            label: Notify e-mail
+        }
+        layout {
+            sequence: 30
+            region: @job
+            slot: regionBody
+            newColumn: true
+            columnSpan: 3
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        help {
+            helpText: Optional. Receives the completion mail when NOTIFY_SENDER is configured.
+        }
+    )
+
+    pageItem P3_SOURCE (
+        type: radioGroup
+        label {
+            label: Features come from
+        }
+        layout {
+            sequence: 40
+            region: @job
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            displayNullValue: false
+            sqlQuery:
+                ```sql
+                select d, r from (select 'a GeoJSON FeatureCollection' as d, 'GEOJSON' as r, 1 as o from dual union all select 'a SELECT run inside the database' as d, 'QUERY' as r, 2 as o from dual) order by o
+                ```
+        }
+        default {
+            type: static
+            staticValue: GEOJSON
+        }
+    )
+
+    region from-geojson (
+        name: GeoJSON
+        type: staticContent
+        layout {
+            sequence: 20
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P3_GEOJSON (
+        type: textarea
+        label {
+            label: FeatureCollection
+        }
+        layout {
+            sequence: 10
+            region: @from-geojson
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            height: 10
+        }
+        help {
+            helpText: A GeoJSON FeatureCollection, Feature or bare geometry. Reserved properties (NAME, FOLDER_NAME, LINE_COLOR, ...) map to KMLeon columns, everything else becomes ExtendedData.
+        }
+    )
+
+    region preview (
+        name: Preview
+        type: map
+        layout {
+            sequence: 20
+            parentRegion: @from-geojson
+            slot: subRegions
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+            ]
+        }
+        map {
+            height: 260
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select json_value(s, '$.lon' returning number) as map_lon, json_value(s, '$.lat' returning number) as map_lat, json_value(s, '$.zoom' returning number) as zoom_level
+                  from (select pck_kmleon_tools.map_start(p_geojson => :P3_GEOJSON) as s from dual)
+                ```
+            geometryColumnDataType: longitudeLatitude
+            initialLongitudeColumn: MAP_LON
+            initialLatitudeColumn: MAP_LAT
+            initialZoomlevelColumn: ZOOM_LEVEL
+        }
+        attributes {
+            messagesPosition: below
+        }
+
+        layer pts (
+            name: Points
+            label {
+                label: Points
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select rownum as id, json_value(g, '$.properties.NAME') as name, json_query(g, '$.geometry' returning clob) as geojson
+                      from json_table(case when :P3_GEOJSON is json then :P3_GEOJSON end, '$.features[*]' columns (g clob format json path '$'))
+                     where json_value(g, '$.geometry.type') in ('Point', 'MultiPoint')
+                    ```
+                pageItemsToSubmit: P3_GEOJSON
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer lines (
+            layerType: lines
+            name: Lines
+            label {
+                label: Lines
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select rownum as id, json_value(g, '$.properties.NAME') as name, json_query(g, '$.geometry' returning clob) as geojson
+                      from json_table(case when :P3_GEOJSON is json then :P3_GEOJSON end, '$.features[*]' columns (g clob format json path '$'))
+                     where json_value(g, '$.geometry.type') in ('LineString', 'MultiLineString')
+                    ```
+                pageItemsToSubmit: P3_GEOJSON
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer polys (
+            layerType: polygons
+            name: Polygons
+            label {
+                label: Polygons
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select rownum as id, json_value(g, '$.properties.NAME') as name, json_query(g, '$.geometry' returning clob) as geojson
+                      from json_table(case when :P3_GEOJSON is json then :P3_GEOJSON end, '$.features[*]' columns (g clob format json path '$'))
+                     where json_value(g, '$.geometry.type') in ('Polygon', 'MultiPolygon')
+                    ```
+                pageItemsToSubmit: P3_GEOJSON
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+                fillOpacity: 0.35
+                strokeColor: #2563eb
+                strokeWidth: 2
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+    )
+
+    region from-query (
+        name: SELECT (runs as the KMLeon schema at job time)
+        type: staticContent
+        layout {
+            sequence: 30
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    pageItem P3_QUERY (
+        type: textarea
+        label {
+            label: SELECT
+        }
+        layout {
+            sequence: 10
+            region: @from-query
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            height: 10
+        }
+        help {
+            helpText: Column aliases drive the output: GEOMETRY (SDO_GEOMETRY) or GEOMETRY_GEOJSON, NAME, DESCRIPTION, FOLDER_NAME, style columns; any other alias becomes ExtendedData. Parameters must be binds supplied in the binds JSON. Use the Query helper to analyse a statement first.
+        }
+    )
+
+    pageItem P3_BINDS (
+        type: textField
+        label {
+            label: Binds (JSON)
+        }
+        layout {
+            sequence: 20
+            region: @from-query
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+            valuePlaceholder: {"region":"DE"}
+        }
+    )
+
+    pageItem P3_SOURCE_MODE (
+        type: radioGroup
+        label {
+            label: Mode
+        }
+        layout {
+            sequence: 30
+            region: @from-query
+            slot: regionBody
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            displayNullValue: false
+            sqlQuery:
+                ```sql
+                select d, r from (select 'Stream rows straight into the KML' as d, 'STREAM' as r, 1 as o from dual union all select 'Store rows as features first (inspectable)' as d, 'MATERIALIZE' as r, 2 as o from dual) order by o
+                ```
+        }
+        default {
+            type: static
+            staticValue: STREAM
+        }
+    )
+
+    region actions (
+        name: Actions
+        type: staticContent
+        layout {
+            sequence: 40
+            slot: body
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+    )
+
+    button cancel (
+        buttonName: CANCEL
+        label: Cancel
+        layout {
+            sequence: 10
+            region: @actions
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 1
+            }
+        }
+    )
+
+    button create (
+        buttonName: CREATE
+        label: Create draft
+        layout {
+            sequence: 20
+            region: @actions
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text
+            templateOptions: #DEFAULT#
+        }
+        behavior {
+            action: submitPage
+            executeValidations: true
+        }
+    )
+
+    button create-run (
+        buttonName: CREATE_RUN
+        label: Create and run
+        layout {
+            sequence: 30
+            region: @actions
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            hot: true
+            icon: fa-play
+            templateOptions: [
+                #DEFAULT#
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: submitPage
+            executeValidations: true
+        }
+    )
+
+    validation geojson-required (
+        name: GeoJSON required
+        execution {
+            sequence: 10
+        }
+        validation {
+            type: itemIsNotNull
+            item: P3_GEOJSON
+        }
+        error {
+            errorMessage: Paste a GeoJSON FeatureCollection.
+            associatedItem: @P3_GEOJSON
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P3_SOURCE = 'GEOJSON'
+        }
+    )
+
+    validation geojson-valid (
+        name: GeoJSON parses
+        execution {
+            sequence: 20
+        }
+        validation {
+            type: expression
+            language: plsql
+            plsqlExpression: pck_kmleon_tools.is_json_object(:P3_GEOJSON) = 'Y'
+        }
+        error {
+            errorMessage: This is not valid JSON.
+            associatedItem: @P3_GEOJSON
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P3_SOURCE = 'GEOJSON'
+        }
+    )
+
+    validation query-required (
+        name: SELECT required
+        execution {
+            sequence: 30
+        }
+        validation {
+            type: itemIsNotNull
+            item: P3_QUERY
+        }
+        error {
+            errorMessage: Enter the SELECT statement.
+            associatedItem: @P3_QUERY
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P3_SOURCE = 'QUERY'
+        }
+    )
+
+    validation binds-json (
+        name: Binds are JSON
+        execution {
+            sequence: 40
+        }
+        validation {
+            type: expression
+            language: plsql
+            plsqlExpression: pck_kmleon_tools.is_json_object(:P3_BINDS) = 'Y'
+        }
+        error {
+            errorMessage: Binds must be a JSON object such as {"region":"DE"}.
+            associatedItem: @P3_BINDS
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P3_SOURCE = 'QUERY'
+        }
+    )
+
+    process create (
+        name: Create job
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_job number;
+                  l_n   number;
+                begin
+                  if :P3_SOURCE = 'GEOJSON' then
+                    l_job := pck_kml_job_api.create_job(
+                               p_document_name => :P3_DOCUMENT_NAME,
+                               p_output_format => :P3_OUTPUT_FORMAT,
+                               p_notify_email  => :P3_NOTIFY_EMAIL,
+                               p_user_tab      => 'APP_USER',
+                               p_user_id       => :APP_USER);
+                    l_n := pck_kml_job_api.add_features_geojson(l_job, :P3_GEOJSON);
+                  else
+                    l_job := pck_kml_job_api.create_job_from_query(
+                               p_document_name => :P3_DOCUMENT_NAME,
+                               p_source_query  => :P3_QUERY,
+                               p_source_binds  => :P3_BINDS,
+                               p_source_mode   => :P3_SOURCE_MODE,
+                               p_output_format => :P3_OUTPUT_FORMAT,
+                               p_notify_email  => :P3_NOTIFY_EMAIL,
+                               p_user_tab      => 'APP_USER',
+                               p_user_id       => :APP_USER);
+                  end if;
+                  commit;
+                  if :REQUEST = 'CREATE_RUN' then
+                    pck_kml_job_api.run_now(l_job);
+                    if pck_kml_job_api.get_status(l_job) <> 'COMPLETED' then
+                      raise_application_error(-20907, 'Job ' || l_job || ' was created but its run '
+                        || pck_kml_job_api.get_status(l_job) || ': ' || substr(pck_kml_jobs_dml.get(l_job).error_message, 1, 300));
+                    end if;
+                  end if;
+                  :P3_JOB_ID := l_job;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: processing
+        }
+        serverSideCondition {
+            type: requestIsContainedInValue
+            value: CREATE,CREATE_RUN
+        }
+        successMessage {
+            successMessage: Job &P3_JOB_ID. created.
+        }
+    )
+
+    pageItem P3_JOB_ID (
+        type: hidden
+        layout {
+            sequence: 90
+            region: @job
+            slot: regionBody
+        }
+    )
+
+    branch to-dashboard (
+        name: Back to dashboard
+        execution {
+            sequence: 10
+            point: afterProcessing
+        }
+        behavior {
+            type: pageOrUrl
+            target: {
+                page: 1
+            }
+        }
+    )
+
+    dynamicAction da-source (
+        name: Show the chosen source
+        execution {
+            sequence: 10
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P3_SOURCE
+        }
+
+        action show-geojson (
+            action: show
+            affectedElements {
+                selectionType: region
+                region: @from-geojson
+            }
+            clientSideCondition {
+                type: item=value
+                item: P3_SOURCE
+                value: GEOJSON
+            }
+            execution {
+                sequence: 10
+                fireOnInit: true
+            }
+        )
+
+        action hide-geojson (
+            action: hide
+            affectedElements {
+                selectionType: region
+                region: @from-geojson
+            }
+            clientSideCondition {
+                type: item!=value
+                item: P3_SOURCE
+                value: GEOJSON
+            }
+            execution {
+                sequence: 20
+                fireOnInit: true
+            }
+        )
+
+        action show-query (
+            action: show
+            affectedElements {
+                selectionType: region
+                region: @from-query
+            }
+            clientSideCondition {
+                type: item=value
+                item: P3_SOURCE
+                value: QUERY
+            }
+            execution {
+                sequence: 30
+                fireOnInit: true
+            }
+        )
+
+        action hide-query (
+            action: hide
+            affectedElements {
+                selectionType: region
+                region: @from-query
+            }
+            clientSideCondition {
+                type: item!=value
+                item: P3_SOURCE
+                value: QUERY
+            }
+            execution {
+                sequence: 40
+                fireOnInit: true
+            }
+        )
+
+    )
+
+    dynamicAction da-preview (
+        name: Refresh the preview map
+        execution {
+            sequence: 20
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P3_GEOJSON
+        }
+
+        action refresh-preview (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @preview
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+
+    )
+
+)

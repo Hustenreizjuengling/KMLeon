@@ -88,6 +88,27 @@ as
     p_access_key in varchar2
   ) return varchar2;
 
+  -- APEX application error handling function (Application > Error Handling).
+  -- Turns KMLeon's own errors (-208xx engine / DML, -209xx toolkit pages) into
+  -- the plain message without the ORA- prefix, keeps APEX validation/internal
+  -- messages as they are, and replaces any other database error with a generic
+  -- text + reference while the technical details go to the APEX debug log.
+  function apex_error_handler(p_error in apex_error.t_error) return apex_error.t_error_result;
+
+  -- 'Y' when p_text parses as a JSON object (NULL/empty -> 'Y' as well, so it
+  -- composes with a separate required check). For page validations.
+  function is_json_object(p_text in clob) return varchar2;
+
+  -- The GeoJSON "type" member of p_text (Point, Polygon, Feature, ...), NULL when
+  -- p_text is not valid JSON or has no type. Used by the toolkit's validations.
+  function geojson_type(p_text in clob) return varchar2;
+
+  -- Start position for an APEX Map region: '{"lon":..,"lat":..,"zoom":..}' centred
+  -- on the bounding box of a job's features (p_job_id) or of a GeoJSON text
+  -- (p_geojson: geometry, Feature or FeatureCollection). Falls back to a Europe
+  -- overview when there is nothing to show, so an empty map never opens at 0/0.
+  function map_start(p_job_id in number default null, p_geojson in clob default null) return varchar2;
+
   -- Convert a KML aabbggrr color back to an HTML #RRGGBB string (for loading a
   -- stored asset's color into a color picker). Returns NULL on bad input.
   function kml_to_rgb(p_kml in varchar2) return varchar2;
@@ -610,6 +631,128 @@ as
     end if;
     p_scheme_host := l_scheme || '://' || l_host;
   end request_base;
+
+
+  function is_json_object(p_text in clob) return varchar2 is
+    l json_element_t;
+  begin
+    if p_text is null or dbms_lob.getlength(p_text) = 0 then
+      return 'Y';
+    end if;
+    l := json_element_t.parse(p_text);
+    return case when l.is_object then 'Y' else 'N' end;
+  exception
+    when others then
+      return 'N';
+  end is_json_object;
+
+
+  function geojson_type(p_text in clob) return varchar2 is
+  begin
+    if p_text is null then
+      return null;
+    end if;
+    return json_value(p_text, '$.type' returning varchar2(60) null on error);
+  exception
+    when others then
+      return null;
+  end geojson_type;
+
+
+  function map_start(p_job_id in number default null, p_geojson in clob default null) return varchar2 is
+    l_minx number; l_miny number; l_maxx number; l_maxy number;
+    l_ext  number; l_zoom pls_integer;
+
+    -- scan one GeoJSON *geometry* text (only "type" and "coordinates", so every
+    -- number is a coordinate) and widen the bounding box by its lon/lat pairs
+    procedure scan(p_geom in clob) is
+      l_txt varchar2(32767);
+      l_i   pls_integer := 1;
+      l_tup varchar2(200);
+      l_lon number; l_lat number;
+    begin
+      if p_geom is null then return; end if;
+      l_txt := dbms_lob.substr(p_geom, 32000, 1);
+      loop
+        -- every innermost [..] is one position: lon, lat and an optional altitude
+        l_tup := regexp_substr(l_txt, '\[[^][]+\]', 1, l_i);
+        exit when l_tup is null;
+        l_lon := to_number(regexp_substr(l_tup, '-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?', 1, 1) default null on conversion error,
+                           '99999999999.99999999999999', 'NLS_NUMERIC_CHARACTERS=''.,''');
+        l_lat := to_number(regexp_substr(l_tup, '-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?', 1, 2) default null on conversion error,
+                           '99999999999.99999999999999', 'NLS_NUMERIC_CHARACTERS=''.,''');
+        if l_lon between -180 and 180 and l_lat between -90 and 90 then
+          l_minx := least(nvl(l_minx, l_lon), l_lon); l_maxx := greatest(nvl(l_maxx, l_lon), l_lon);
+          l_miny := least(nvl(l_miny, l_lat), l_lat); l_maxy := greatest(nvl(l_maxy, l_lat), l_lat);
+        end if;
+        l_i := l_i + 1;
+      end loop;
+    exception
+      when others then null;   -- a malformed text simply contributes nothing
+    end scan;
+  begin
+    if p_job_id is not null then
+      for r in (select pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as g
+                  from kml_job_assets where job_id = p_job_id) loop
+        scan(r.g);
+      end loop;
+    elsif p_geojson is not null and p_geojson is json then
+      case json_value(p_geojson, '$.type')
+        when 'FeatureCollection' then
+          for r in (select g from json_table(p_geojson, '$.features[*].geometry' columns (g clob format json path '$'))) loop
+            scan(r.g);
+          end loop;
+        when 'Feature' then
+          scan(json_query(p_geojson, '$.geometry' returning clob));
+        else
+          scan(p_geojson);
+      end case;
+    end if;
+    if l_minx is null then
+      return '{"lon":10,"lat":51,"zoom":3}';
+    end if;
+    l_ext  := greatest(l_maxx - l_minx, (l_maxy - l_miny) * 1.6, 0.003);
+    l_zoom := greatest(1, least(15, floor(log(2, 360 / l_ext)) - 1));
+    return '{"lon":' || to_char((l_minx + l_maxx) / 2, 'FM9990.000000', 'NLS_NUMERIC_CHARACTERS=''.,''')
+        || ',"lat":' || to_char((l_miny + l_maxy) / 2, 'FM990.000000', 'NLS_NUMERIC_CHARACTERS=''.,''')
+        || ',"zoom":' || l_zoom || '}';
+  end map_start;
+
+
+  function apex_error_handler(p_error in apex_error.t_error) return apex_error.t_error_result is
+    l_result apex_error.t_error_result;
+    l_ref    varchar2(40);
+  begin
+    l_result := apex_error.init_error_result(p_error => p_error);
+
+    if p_error.is_internal_error then
+      -- APEX-internal / developer errors: end users get the standard message;
+      -- toolkit admins (IST_ADMIN) also see the technical cause
+      if not p_error.is_common_runtime_error then
+        apex_debug.error('KMLeon internal error: %s %s', p_error.message, p_error.additional_info);
+        l_result.message := 'An unexpected error occurred. The details have been logged.';
+        l_result.additional_info := case when apex_authorization.is_authorized('IST_ADMIN')
+                                         then substr(p_error.message || ' ' || p_error.additional_info, 1, 2000) end;
+      end if;
+    elsif p_error.ora_sqlcode between -20999 and -20800 then
+      -- KMLeon messages are written for users: strip "ORA-20xxx: " and any stack
+      l_result.message := regexp_replace(apex_error.get_first_ora_error_text(p_error => p_error), '^ORA-\d+: ', '');
+      l_result.additional_info := null;
+    elsif p_error.ora_sqlcode is not null then
+      -- any other database error: generic text + reference, details in debug
+      l_ref := to_char(systimestamp, 'YYYYMMDDHH24MISSFF3');
+      apex_debug.error('KMLeon error %s: %s', l_ref, p_error.message || ' ' || p_error.additional_info);
+      l_result.message         := 'The request could not be completed (reference ' || l_ref || ').';
+      l_result.additional_info := case when apex_authorization.is_authorized('IST_ADMIN')
+                                       then substr(apex_error.get_first_ora_error_text(p_error => p_error), 1, 2000) end;
+    end if;
+
+    -- inline-with-field needs an associated item; otherwise show in the notification
+    if l_result.page_item_name is null and l_result.column_alias is null then
+      l_result.display_location := apex_error.c_inline_in_notification;
+    end if;
+    return l_result;
+  end apex_error_handler;
 
 
   function public_editor_url(

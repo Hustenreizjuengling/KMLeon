@@ -4,12 +4,15 @@
 -- Prepares a notification e-mail (subject, body, and the result file as an
 -- attachment) for a finished job and hands it to a mail sender.
 --
--- DESIGNED TO BE CUSTOMIZED. Out of the box it does everything it can on its own
--- (build the message, attach the result, pick the recipient from KML_JOBS.notify_email)
--- and then DOES NOT actually send anything. Two small hooks in the body are the
--- only places you edit -- both have safe defaults and are marked "CUSTOMIZE HERE":
+-- Out of the box it builds the message, attaches the result and picks the
+-- recipient from KML_JOBS.notify_email. WHO sends is the NOTIFY_SENDER setting:
+--   NONE      (default) prepare + log only -- nothing leaves the database
+--   APEX_MAIL queue through APEX_MAIL (needs NOTIFY_FROM; NOTIFY_APEX_WORKSPACE
+--             for runs without an APEX session, i.e. scheduler / REST)
+--   CUSTOM    your own send_mail hook below
+-- Two hooks in the body are the only places to edit (marked "CUSTOMIZE HERE"):
 --   * resolve_recipient(user_tab, user_id) -> map a creator to an e-mail address
---   * send_mail(t_mail)                    -> call APEX_MAIL or your own wrapper
+--   * send_mail(t_mail)                    -> your mail wrapper (NOTIFY_SENDER = CUSTOM)
 --
 -- Recipient precedence: KML_JOBS.notify_email (explicit, e.g. from REST) wins;
 -- otherwise resolve_recipient(user_tab, user_id) is consulted.
@@ -103,8 +106,8 @@ as
   ------------------------------------------------------------------------------
   -- CUSTOMIZE HERE (2/2): actually send the prepared mail.
   ------------------------------------------------------------------------------
-  -- Default: send nothing (just log that a mail was prepared). Replace the body
-  -- with APEX_MAIL or a call to your existing mail wrapper, e.g.:
+  -- Only used when NOTIFY_SENDER = CUSTOM. Default: log that a mail was prepared.
+  -- Replace the body with a call to your existing mail wrapper, e.g.:
   --
   --   declare l_id number;
   --   begin
@@ -123,11 +126,70 @@ as
   procedure send_mail(p_mail in t_mail) is
   begin
     pck_kml_log.info(c_pkg, 'send_mail',
-      'no mail sender configured -- prepared mail to ' || p_mail.recipient
+      'NOTIFY_SENDER = CUSTOM but send_mail is not implemented -- prepared mail to ' || p_mail.recipient
       || ' (attachment=' ||
       case when p_mail.attachment is null then 'none'
            else dbms_lob.getlength(p_mail.attachment) || ' bytes' end || ')');
   end send_mail;
+
+
+  ------------------------------------------------------------------------------
+  -- Built-in sender: APEX_MAIL (NOTIFY_SENDER = APEX_MAIL). Called dynamically so
+  -- this package compiles without APEX. Outside an APEX session (scheduler, REST)
+  -- the workspace from NOTIFY_APEX_WORKSPACE is bootstrapped so APEX_MAIL finds
+  -- the instance/workspace mail settings. The mail is queued; push_queue is
+  -- attempted best-effort (the APEX mail job delivers it anyway).
+  ------------------------------------------------------------------------------
+  procedure send_apex_mail(p_mail in t_mail) is
+    l_from varchar2(400) := pck_kml_config_dml.get_string('NOTIFY_FROM');
+    l_ws   varchar2(255) := pck_kml_config_dml.get_string('NOTIFY_APEX_WORKSPACE');
+    l_id   number;
+  begin
+    if l_from is null then
+      raise_application_error(-20840, 'NOTIFY_SENDER = APEX_MAIL requires the NOTIFY_FROM setting.');
+    end if;
+    execute immediate q'[
+      declare
+        l_id number;
+      begin
+        if sys_context('APEX$SESSION', 'WORKSPACE_ID') is null and :ws is not null then
+          apex_util.set_security_group_id(apex_util.find_security_group_id(:ws));
+        end if;
+        l_id := apex_mail.send(p_to => :to, p_from => :from, p_subj => :subj, p_body => :body);
+        if :att is not null then
+          apex_mail.add_attachment(p_mail_id => l_id, p_attachment => :att,
+                                   p_filename => :fn, p_mime_type => :mime);
+        end if;
+        :id := l_id;
+      end;]'
+      using in l_ws, in p_mail.recipient, in l_from, in p_mail.subject, in p_mail.body,
+            in p_mail.attachment, in p_mail.filename, in p_mail.mime_type,
+            out l_id;   -- PL/SQL block: each distinct placeholder is bound once
+    pck_kml_log.info(c_pkg, 'send_apex_mail', 'queued APEX mail id ' || l_id || ' to ' || p_mail.recipient);
+    begin
+      execute immediate 'begin apex_mail.push_queue; end;';
+    exception
+      when others then   -- e.g. no SMTP configured yet: the queue keeps the mail
+        pck_kml_log.warn(c_pkg, 'send_apex_mail', 'push_queue failed (mail stays queued): ' || sqlerrm);
+    end;
+  end send_apex_mail;
+
+
+  -- Route the prepared mail to the configured sender.
+  procedure dispatch(p_mail in t_mail) is
+    l_sender varchar2(40) := upper(nvl(pck_kml_config_dml.get_string('NOTIFY_SENDER'), 'NONE'));
+  begin
+    case l_sender
+      when 'APEX_MAIL' then send_apex_mail(p_mail);
+      when 'CUSTOM'    then send_mail(p_mail);
+      else
+        pck_kml_log.info(c_pkg, 'dispatch',
+          'NOTIFY_SENDER = NONE -- prepared mail to ' || p_mail.recipient
+          || ' (attachment=' ||
+          case when p_mail.attachment is null then 'none'
+               else dbms_lob.getlength(p_mail.attachment) || ' bytes' end || ') not sent');
+    end case;
+  end dispatch;
 
 
   function prepare(p_job_id in number, p_event in varchar2 default 'COMPLETED') return t_mail is
@@ -200,7 +262,7 @@ as
       return;
     end if;
 
-    send_mail(l_mail);                       -- your sender / APEX_MAIL (no-op by default)
+    dispatch(l_mail);                        -- NONE (default) / APEX_MAIL / CUSTOM (send_mail hook)
     -- free the KML attachment temp BLOB (clob_to_blob); the KMZ attachment is the
     -- persistent result_kmz LOB, so istemporary guards against freeing that.
     if l_mail.attachment is not null and dbms_lob.istemporary(l_mail.attachment) = 1 then

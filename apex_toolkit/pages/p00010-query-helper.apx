@@ -60,14 +60,15 @@ page 10 (
                   </ul>
                   <b>Bind mode</b> chooses <i>where</i> inline binds are baked in:
                   <ul>
-                    <li><b><code>QUERY</code></b> (default) &mdash; value concatenated INTO
-                      <code>source_query</code>, the engine sees a literal:
-                      <code>q'~...~' || :P200_ID || q'~...~'</code>. Simpler, value visible on
-                      the job row.</li>
-                    <li><b><code>JSON</code></b> &mdash; query keeps <code>:NAME</code>, value
+                    <li><b><code>JSON</code></b> (default, safer) &mdash; query keeps <code>:NAME</code>, value
                       lands in <code>source_binds</code> at submit time:
                       <code>'{"P200_ID":"' || :P200_ID || '",&hellip;}'</code>. Cleaner stored
-                      SQL and better plan-cache reuse.</li>
+                      SQL, better plan-cache reuse, and no caller value is ever concatenated
+                      into SQL text.</li>
+                    <li><b><code>QUERY</code></b> (opt-in) &mdash; value concatenated INTO
+                      <code>source_query</code>, the engine sees a literal:
+                      <code>q'~...~' || :P200_ID || q'~...~'</code>. Simpler, value visible on
+                      the job row; only for trusted, non-user-controlled values.</li>
                   </ul>
                   The <i>Status</i> below reports the chosen mode and both bind sets.
                 </p>

@@ -1,0 +1,264 @@
+list navigation-bar (
+    name: Navigation Bar
+
+    entry app-user (
+        label: &APP_USER.
+        icon {
+            imageIconCssClasses: fa-user
+        }
+        layout {
+            sequence: 10
+        }
+        link {
+            target: {
+                type: url
+                url: #
+            }
+        }
+        userDefinedAttributes {
+            2: has-username
+        }
+    )
+
+    entry list_item (
+        label: ---
+        layout {
+            sequence: 20
+            parentEntry: @app-user
+        }
+        link {
+            target: {
+                type: url
+                url: separator
+            }
+        }
+        serverSideCondition {
+            type: userIsAuthenticated
+        }
+    )
+
+    entry sign-out (
+        label: Sign Out
+        icon {
+            imageIconCssClasses: fa-sign-out
+        }
+        layout {
+            sequence: 30
+            parentEntry: @app-user
+        }
+        link {
+            target: {
+                type: url
+                url: &LOGOUT_URL.
+            }
+        }
+        serverSideCondition {
+            type: userIsAuthenticated
+        }
+    )
+
+    entry login (
+        label: Login
+        icon {
+            imageIconCssClasses: fa-sign-in
+        }
+        layout {
+            sequence: 5
+        }
+        link {
+            target: {
+                page: 9999
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: lower(:APP_USER) = 'nobody'
+        }
+    )
+
+)
+
+list navigation-menu (
+    name: Navigation Menu
+
+    entry dashboard (
+        label: Dashboard
+        icon {
+            imageIconCssClasses: fa-tachometer
+        }
+        layout {
+            sequence: 10
+        }
+        isCurrent {
+            type: pages
+            pages: 1
+        }
+        link {
+            target: {
+                page: 1
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry new-job (
+        label: New job
+        icon {
+            imageIconCssClasses: fa-plus
+        }
+        layout {
+            sequence: 20
+        }
+        isCurrent {
+            type: pages
+            pages: 3
+        }
+        link {
+            target: {
+                page: 3
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry editor (
+        label: Editor
+        icon {
+            imageIconCssClasses: fa-pencil-square-o
+        }
+        layout {
+            sequence: 30
+        }
+        isCurrent {
+            type: pages
+            pages: 11
+        }
+        link {
+            target: {
+                page: 11
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry query-helper (
+        label: Query helper
+        icon {
+            imageIconCssClasses: fa-search
+        }
+        layout {
+            sequence: 40
+        }
+        isCurrent {
+            type: pages
+            pages: 10
+        }
+        link {
+            target: {
+                page: 10
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry async (
+        label: Async playground
+        icon {
+            imageIconCssClasses: fa-bolt
+        }
+        layout {
+            sequence: 50
+        }
+        isCurrent {
+            type: pages
+            pages: 8
+        }
+        link {
+            target: {
+                page: 8
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry logs (
+        label: Logs
+        icon {
+            imageIconCssClasses: fa-file-text-o
+        }
+        layout {
+            sequence: 60
+        }
+        isCurrent {
+            type: pages
+            pages: 5
+        }
+        link {
+            target: {
+                page: 5
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry settings (
+        label: Settings
+        icon {
+            imageIconCssClasses: fa-cog
+        }
+        layout {
+            sequence: 70
+        }
+        isCurrent {
+            type: pages
+            pages: 7
+        }
+        link {
+            target: {
+                page: 7
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    entry my-maps (
+        label: My maps
+        icon {
+            imageIconCssClasses: fa-map
+        }
+        layout {
+            sequence: 80
+        }
+        isCurrent {
+            type: pages
+            pages: 110
+        }
+        link {
+            target: {
+                page: 110
+            }
+        }
+    )
+
+)

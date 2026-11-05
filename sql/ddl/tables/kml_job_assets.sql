@@ -58,8 +58,8 @@ create index kml_job_assets_job_ix
 
 comment on table  kml_job_assets                  is 'Generic map features for a job. The consuming app fills these; KMLeon renders them. DML only via PCK_KML_JOB_ASSETS_DML.';
 comment on column kml_job_assets.folder_name      is 'Optional KML <Folder> path; ''/'' separates levels (e.g. Europe/Germany) for nested folders. NULL = directly under <Document>.';
-comment on column kml_job_assets.geometry_sdo     is 'Native SDO_GEOMETRY (preferred). Converted to KML via SDO_UTIL.TO_KMLGEOMETRY.';
-comment on column kml_job_assets.geometry_geojson is 'GeoJSON geometry/feature (used when geometry_sdo is NULL). Converted via SDO_UTIL.FROM_GEOJSON.';
+comment on column kml_job_assets.geometry_sdo     is 'Native SDO_GEOMETRY (preferred). Converted to KML via PCK_KML_GEOM.TO_KML (pure PL/SQL; non-WGS84 SRIDs are transformed to lon/lat).';
+comment on column kml_job_assets.geometry_geojson is 'GeoJSON geometry, Feature or FeatureCollection (used when geometry_sdo is NULL). Converted via PCK_KML_GEOM.FROM_GEOJSON (SDO_UTIL.FROM_GEOJSON).';
 comment on column kml_job_assets.extended_data    is 'JSON object of key/value pairs rendered as <ExtendedData> (visible in the feature balloon).';
 comment on column kml_job_assets.line_color       is 'KML aabbggrr hex. Use PCK_KML_ENGINE.rgba_to_kml to convert from RRGGBB.';
 comment on column kml_job_assets.poly_color       is 'KML aabbggrr hex fill color.';

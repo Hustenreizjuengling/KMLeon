@@ -65,5 +65,7 @@ begin
   pck_kml_config_dml.set_boolean('DELETE_ASSETS_AFTER_SUCCESS', l_prev);
   commit;
   dbms_output.put_line('rerun smoke test OK (job cleaned up, setting restored)');
+  -- run_all.sql summary: mark this script as passed (no-op when run standalone)
+  begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_rerun')]'; exception when others then null; end;
 end;
 /

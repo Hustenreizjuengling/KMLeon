@@ -96,6 +96,10 @@ as
   procedure run_now(p_job_id in number);      -- run synchronously; commits
   procedure cancel_job(p_job_id in number);   -- DRAFT/PENDING -> CANCELLED; commits
 
+  -- Delete a job and its assets/result. Refused (-20815) while the job is
+  -- PENDING or RUNNING -- cancel it first. Commits.
+  procedure delete_job(p_job_id in number);
+
   function get_status(p_job_id in number) return varchar2;
   function get_kml(p_job_id in number)    return clob;
   function get_kmz(p_job_id in number)    return blob;
@@ -274,6 +278,19 @@ as
     end if;
     commit;
   end cancel_job;
+
+
+  procedure delete_job(p_job_id in number) is
+    l_job kml_jobs%rowtype;
+  begin
+    l_job := pck_kml_jobs_dml.get(p_job_id);   -- raises -20813 if the job does not exist
+    if l_job.status in ('PENDING', 'RUNNING') then
+      raise_application_error(-20815,
+        'Job ' || p_job_id || ' cannot be deleted while ' || l_job.status || '; cancel it first.');
+    end if;
+    pck_kml_jobs_dml.del(p_job_id);
+    commit;
+  end delete_job;
 
 
   function get_status(p_job_id in number) return varchar2 is

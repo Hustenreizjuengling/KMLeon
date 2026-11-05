@@ -10,6 +10,8 @@ go through the DML packages** — never INSERT/UPDATE/DELETE the tables directly
 | `KML_CONFIG` | `PCK_KML_CONFIG_DML` |
 | `KML_LOG` | `PCK_KML_LOG` |
 
+(`PCK_KML_GEOM` — geometry conversion — and `PCK_KML_ZIP` — ZIP writer — own no table.)
+
 Every table ends with the audit columns `created_at`, `created_by`, `updated_at`,
 `updated_by`, auto-stamped by the DML package when passed NULL.
 
@@ -56,8 +58,8 @@ One row per map feature. `job_id` → `KML_JOBS` with `ON DELETE CASCADE`.
 | `description` | CLOB | `<description>`; HTML allowed, CDATA-wrapped. |
 | `extended_data` | CLOB | JSON object `{"k":"v",...}` → `<ExtendedData>` (balloon). |
 | `visibility` | VARCHAR2(1) | `Y`/`N` (default `Y`). |
-| `geometry_sdo` | SDO_GEOMETRY | Native geometry (preferred). |
-| `geometry_geojson` | CLOB | GeoJSON geometry/feature (used if `geometry_sdo` is NULL). |
+| `geometry_sdo` | SDO_GEOMETRY | Native geometry (preferred). Any SRID; non-WGS84 is transformed at render time. |
+| `geometry_geojson` | CLOB | GeoJSON geometry, Feature or FeatureCollection (used if `geometry_sdo` is NULL). |
 | `altitude_mode` | VARCHAR2(20) | `clampToGround`/`relativeToGround`/`absolute`. |
 | `extrude` / `tessellate` | VARCHAR2(1) | `Y`/`N`. |
 | `icon_href` / `icon_scale` | VARCHAR2 / NUMBER | Point icon. |
@@ -122,23 +124,37 @@ exec pck_kml_config_dml.set_boolean('CLEANUP_ENABLED', true);
 | `DELETE_ASSETS_AFTER_SUCCESS` | SETTING | BOOLEAN | `Y` | Delete a job's assets after a successful build. |
 | `LOG_THRESHOLD` | SETTING | STRING | `INFO` | Minimum severity `PCK_KML_LOG` persists (`ERROR`/`WARN`/`INFO`/`DEBUG`); read once per session. |
 | `NOTIFY_MAX_ATTACH_BYTES` | SETTING | NUMBER | `10485760` | Results larger than this are e-mailed without the attachment. |
+| `NOTIFY_SENDER` | SETTING | STRING | `NONE` | `NONE` / `APEX_MAIL` / `CUSTOM` — who sends the completion mail. |
+| `NOTIFY_FROM` | SETTING | STRING | — | Sender address for `APEX_MAIL`. |
+| `NOTIFY_APEX_WORKSPACE` | SETTING | STRING | — | Workspace to bootstrap for `APEX_MAIL` outside an APEX session. |
+| `STYLE_HIGHLIGHT_SCALE` | SETTING | NUMBER | — | `> 0` adds scaled highlight styles + `<StyleMap>`s. |
+| `KMZ_ENGINE` | SETTING | STRING | `INTERNAL` | ZIP writer for KMZ: `INTERNAL` (`PCK_KML_ZIP`, pure PL/SQL) or `APEX` (`APEX_ZIP`). |
 | `CLEANUP_ENABLED` | SETTING | BOOLEAN | `N` | Master switch for the scheduled cleanup job. |
 | `CLEANUP_INTERVAL` | SETTING | STRING | `FREQ=DAILY;BYHOUR=3` | DBMS_SCHEDULER calendar for how often cleanup runs. |
 | `CLEANUP_RETENTION_DAYS` | SETTING | NUMBER | `30` | Only jobs finished older than this are eligible. |
 | `CLEANUP_STATUSES` | SETTING | STRING | `COMPLETED,CANCELLED` | Terminal statuses the cleanup deletes. |
 | `CLEANUP_LOG_RETENTION_DAYS` | SETTING | NUMBER | `90` | Delete `KML_LOG` rows older than this during cleanup (`0`/absent = keep all). |
+| `STALE_RUNNING_MINUTES` | SETTING | NUMBER | `120` | Cleanup marks jobs `RUNNING` longer than this as `FAILED` (dead session); `0` = never. |
 | `METRIC_LAST_JOB_CREATED_AT` | METRIC | TIMESTAMP | — | Stamped by `PCK_KML_JOBS_DML.ins`. |
 | `METRIC_LAST_JOB_COMPLETED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_completed`. |
 | `METRIC_LAST_JOB_FAILED_AT` | METRIC | TIMESTAMP | — | Stamped by `set_failed`. |
 | `METRIC_LAST_JOB_CANCELLED_AT` | METRIC | TIMESTAMP | — | Stamped by `cancel`. |
 | `METRIC_LAST_CLEANUP_AT` | METRIC | TIMESTAMP | — | Stamped by the cleanup run. |
 | `METRIC_LAST_CLEANUP_DELETED` | METRIC | NUMBER | — | Rows deleted by the last cleanup run. |
+| `KMLEON_VERSION` | METRIC | STRING | — | Installed release, stamped by `install.sql` / `update.sql`. |
+| `METRIC_LAST_INSTALL_AT` | METRIC | TIMESTAMP | — | When `install.sql` / `update.sql` last ran. |
 
 `PCK_KML_CONFIG_DML.init_defaults` seeds the keys above **only when missing**, so a
 reinstall/update preserves edited values. Metric stamping is **best-effort**: a failure to
 write a metric never breaks the surrounding job transaction.
 
 ### Cleanup job (`PCK_KML_MAINTENANCE`)
+
+Before purging, `run_cleanup` calls `recover_stale_jobs`: a job whose session died
+mid-run (killed session, instance restart) stays `RUNNING` and the claim guard refuses to
+re-run it; jobs `RUNNING` longer than `STALE_RUNNING_MINUTES` are marked `FAILED` with an
+explanatory `error_message` so they can be re-run or cleaned up. `run_async` and the
+dispatcher depend on `job_queue_processes` (serial execution when it is 1).
 
 `run_cleanup(p_force)` reads the `CLEANUP_*` settings and purges old jobs (assets cascade)
 via `PCK_KML_JOBS_DML.purge(statuses, days)`. Only **terminal** statuses (`COMPLETED` /
@@ -213,11 +229,21 @@ render core, only the ingestion channel differs.
 ## Geometry
 
 - Coordinates are **lon/lat** (longitude = X), SRID **4326**.
-- `geometry_sdo` is converted with `SDO_UTIL.TO_KMLGEOMETRY`; `geometry_geojson`
-  is first converted with `SDO_UTIL.FROM_GEOJSON`. **Oracle Spatial/Locator is
-  required, and `FROM_GEOJSON` is a 19c feature — hence KMLeon's 19c floor.**
-- Supported geometry types are whatever `SDO_UTIL.TO_KMLGEOMETRY` supports
-  (points, lines, polygons, and their multi-/collection forms).
+- KML geometry is written by **`PCK_KML_GEOM.to_kml`** — pure PL/SQL, **no Oracle JVM**.
+  (`SDO_UTIL.TO_KMLGEOMETRY` is Java-based and fails with `ORA-29538` on databases
+  without OJVM, e.g. Oracle Database Free container images.) `geometry_geojson` is
+  first converted with `PCK_KML_GEOM.from_geojson` (`SDO_UTIL.FROM_GEOJSON`, native;
+  a 19c feature — hence KMLeon's 19c floor). **Oracle Spatial/Locator is required.**
+- Supported: points, lines, polygons (with holes) and their multi-/collection forms,
+  2D and 3D (altitude kept). Circular arcs, compound elements and optimized
+  rectangles/circles are densified/expanded (`SDO_GEOM.SDO_ARC_DENSIFY`); LRS measure
+  ordinates are dropped; solids raise `-20830`.
+- `geometry_sdo` in a **non-WGS84 SRID** (e.g. UTM 25832) is transformed to lon/lat
+  with `SDO_CS.TRANSFORM` at render time (best-effort; on failure the coordinates are
+  emitted unchanged). SRIDs treated as WGS84: 4326, 4979, 8307, 4327, 4329, NULL.
+- `geometry_geojson` may be a bare geometry, a **Feature** (its geometry is used) or a
+  **FeatureCollection** (all geometries → one `<MultiGeometry>` placemark). Note that
+  `SDO_UTIL.FROM_GEOJSON` alone accepts bare geometries only.
 
 ## Colors
 
@@ -232,6 +258,12 @@ Identical styles are **deduplicated**: each distinct style is emitted once as a
 references it via `<styleUrl>#ks#</styleUrl>`. For large exports where many
 features share styling this makes the output dramatically smaller. Placemarks with
 no style attributes get no `<styleUrl>`.
+
+With `STYLE_HIGHLIGHT_SCALE` set (e.g. `1.3`) each style additionally gets a
+`<Style id="ks#h">` highlight variant — icon scale, label scale and line width
+multiplied by the factor, implicit defaults (1) materialised, polygon-only styles
+given an outline — and a `<StyleMap id="ks#m">` pairing normal/highlight; placemarks
+then reference `#ks#m`.
 
 ## Notifications (`PCK_KML_NOTIFY`)
 
@@ -257,7 +289,8 @@ logged but nothing is sent — the job is unaffected. Notifications fire on both
   into the geometry output. They affect **3D viewers only** (Google Earth, Cesium);
   2D viewers ignore them, and `altitude_mode`/`extrude` need Z-bearing geometry to
   be meaningful. `GEOMETRY_KML` passthrough is left untouched (caller-controlled).
-- **KMZ**: relies on `APEX_ZIP` (assumed available; a pure-PL/SQL fallback was
-  intentionally dropped). Without it, `KML` output still works and KMZ jobs fail clearly.
+- **KMZ**: written by `PCK_KML_ZIP` (pure PL/SQL, DEFLATE via `UTL_COMPRESS`); no ZIP64,
+  i.e. archives stay below 4 GB — far beyond any KMZ. `KMZ_ENGINE = APEX` switches to
+  `APEX_ZIP` if preferred.
 - **ExtendedData**: values read as strings via `JSON_OBJECT_T`; malformed JSON
   silently omits the block.

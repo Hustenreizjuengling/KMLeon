@@ -211,7 +211,11 @@ page 200 (
                             reload();
                             apex.message.showPageSuccess("Saved.");
                         },
-                        error: function () { if (btn) btn.classList.remove("is-busy"); apex.message.alert("Save failed."); }
+                        error: function (jqXHR) {
+                            if (btn) btn.classList.remove("is-busy");
+                            var msg = (jqXHR && jqXHR.responseJSON && jqXHR.responseJSON.error) || "Save failed.";
+                            apex.message.alert(msg);
+                        }
                     });
                 }
                 function del(id) {
@@ -224,7 +228,9 @@ page 200 (
                                 apex.region("kml2map").refresh(); reload();
                                 apex.message.showPageSuccess("Feature deleted.");
                             },
-                            error: function () { apex.message.alert("Could not delete."); }
+                            error: function (jqXHR) {
+                                apex.message.alert((jqXHR && jqXHR.responseJSON && jqXHR.responseJSON.error) || "Could not delete.");
+                            }
                         });
                     });
                 }
@@ -634,14 +640,17 @@ page 200 (
                 type: sqlQuery
                 sqlQuery:
                     ```sql
+                    -- points only: lines/polygons have their own layers below
+                    select * from (
                     select asset_id as id,
                            name,
-                           nvl(geometry_geojson, sdo_util.to_geojson(geometry_sdo)) as geojson
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
                       from kml_job_assets a
                      where a.job_id = to_number(:P200_JOB_ID)
                        and exists (select 1 from kml_jobs j
                                     where j.job_id = to_number(:P200_JOB_ID)
                                       and j.access_key = :P200_ACCESS_KEY)
+                    ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
                     ```
                 pageItemsToSubmit: P200_JOB_ID,P200_ACCESS_KEY
             }
@@ -652,6 +661,92 @@ page 200 (
             }
             appearance {
                 fillColor: #16a34a
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer saved_lines (
+            layerType: lines
+            name: Saved features (lines)
+            label {
+                label: Saved features (lines)
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- lines only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets a
+                     where a.job_id = to_number(:P200_JOB_ID)
+                       and exists (select 1 from kml_jobs j
+                                    where j.job_id = to_number(:P200_JOB_ID)
+                                      and j.access_key = :P200_ACCESS_KEY)
+                    ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
+                    ```
+                pageItemsToSubmit: P200_JOB_ID,P200_ACCESS_KEY
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #16a34a
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+        )
+
+        layer saved_polygons (
+            layerType: polygons
+            name: Saved features (polygons)
+            label {
+                label: Saved features (polygons)
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    -- polygons only: the native map layer draws one geometry type per layer
+                    select * from (
+                    select asset_id as id,
+                           name,
+                           pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets a
+                     where a.job_id = to_number(:P200_JOB_ID)
+                       and exists (select 1 from kml_jobs j
+                                    where j.job_id = to_number(:P200_JOB_ID)
+                                      and j.access_key = :P200_ACCESS_KEY)
+                    ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
+                    ```
+                pageItemsToSubmit: P200_JOB_ID,P200_ACCESS_KEY
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #16a34a
+                fillOpacity: 0.35
+                strokeColor: #16a34a
+                strokeWidth: 2
             }
             tooltip {
                 advancedFormatting: true
@@ -826,7 +921,7 @@ page 200 (
                   end;
                   apex_json.open_object;
                   apex_json.write('asset_id', l_a.asset_id);
-                  apex_json.write('geojson', nvl(l_a.geometry_geojson, sdo_util.to_geojson(l_a.geometry_sdo)));
+                  apex_json.write('geojson', pck_kml_geom.map_geojson(l_a.geometry_sdo, l_a.geometry_geojson));
                   apex_json.write('name', l_a.name);
                   apex_json.write('folder', l_a.folder_name);
                   apex_json.write('line_color', nvl(pck_kmleon_tools.kml_to_rgb(l_a.line_color), '#3388ff'));
@@ -860,6 +955,8 @@ page 200 (
             plsqlCode:
                 ```plsql
                 declare
+                  l_keep_desc kml_job_assets.description%type;
+                  l_keep_vis  kml_job_assets.visibility%type;
                   l_job  number := to_number(:P200_JOB_ID);
                   l_n    number;
                   l_aid  number := json_value(:P200_PAYLOAD, '$.asset_id' returning number);
@@ -868,10 +965,23 @@ page 200 (
                   l_pc   varchar2(64) := json_value(:P200_PAYLOAD, '$.poly_color');
                   l_lbc  varchar2(64) := json_value(:P200_PAYLOAD, '$.label_color');
                   l_pa   number := json_value(:P200_PAYLOAD, '$.poly_alpha' returning number);
-                  l_line varchar2(8) := case when json_value(:P200_PAYLOAD, '$.line_color') is not null then pck_kml_engine.rgba_to_kml(ltrim(l_lc, '#')) end;
-                  l_poly varchar2(8) := case when json_value(:P200_PAYLOAD, '$.poly_color') is not null then pck_kml_engine.rgba_to_kml(ltrim(l_pc, '#'), nvl(l_pa, 128)) end;
-                  l_lbl  varchar2(8) := case when json_value(:P200_PAYLOAD, '$.label_color') is not null then pck_kml_engine.rgba_to_kml(ltrim(l_lbc, '#')) end;
+                  l_line varchar2(8);
+                  l_poly varchar2(8);
+                  l_lbl  varchar2(8);
+                  -- #RRGGBB -> aabbggrr with a user-readable error (computed in the body so the
+                  -- exception handler below catches it; a failure in DECLARE would escape it)
+                  function kml_color(p_what varchar2, p_rgb varchar2, p_alpha number default 255) return varchar2 is
+                  begin
+                    if p_rgb is null then return null; end if;
+                    if not regexp_like(ltrim(p_rgb, '#'), '^[0-9A-Fa-f]{6}$') then
+                      raise_application_error(-20905, p_what || ' must be a #RRGGBB color (got "' || substr(p_rgb, 1, 20) || '").');
+                    end if;
+                    return pck_kml_engine.rgba_to_kml(ltrim(p_rgb, '#'), p_alpha);
+                  end kml_color;
                 begin
+                  l_line := kml_color('Line color',  l_lc);
+                  l_poly := kml_color('Fill color',  l_pc, nvl(l_pa, 128));
+                  l_lbl  := kml_color('Label color', l_lbc);
                   select count(*) into l_n from kml_jobs where job_id = l_job and access_key = :P200_ACCESS_KEY;
                   if l_n = 0 then
                     raise_application_error(-20902, 'Invalid access key.');
@@ -879,14 +989,31 @@ page 200 (
                   if l_gj is null then
                     raise_application_error(-20900, 'Draw a geometry first.');
                   end if;
+                  -- reject what the engine could not render later (silent skip = lost feature)
+                  if pck_kml_geom.to_sdo_wgs84(null, l_gj) is null then
+                    raise_application_error(-20903, 'The drawn geometry is not valid GeoJSON.');
+                  end if;
+                  if json_value(:P200_PAYLOAD, '$.ext_data' returning clob) is not null then
+                    begin
+                      l_n := json_object_t.parse(json_value(:P200_PAYLOAD, '$.ext_data' returning clob)).get_size;
+                    exception when others then
+                      raise_application_error(-20904, 'Extended data must be a JSON object, e.g. {"key":"value"}.');
+                    end;
+                  end if;
 
                   if l_aid is not null then
                     select count(*) into l_n from kml_job_assets where asset_id = l_aid and job_id = l_job;
                     if l_n = 0 then
                       raise_application_error(-20901, 'Feature does not belong to this job.');
                     end if;
+                    -- the editor has no description / visibility fields: keep the stored values
+                    -- (upd() clears description when passed NULL and resets visibility to Y)
+                    select description, visibility into l_keep_desc, l_keep_vis
+                      from kml_job_assets where asset_id = l_aid;
                     pck_kml_job_assets_dml.upd(
                       p_asset_id         => l_aid,
+                      p_description      => l_keep_desc,
+                      p_visibility       => l_keep_vis,
                       p_geometry_geojson => l_gj,
                       p_name             => json_value(:P200_PAYLOAD, '$.name'),
                       p_folder_name      => json_value(:P200_PAYLOAD, '$.folder'),
@@ -927,6 +1054,17 @@ page 200 (
                   apex_json.open_object;
                   apex_json.write('asset_id', l_aid);
                   apex_json.close_object;
+                exception
+                  when others then
+                    -- APEX would otherwise answer an empty 200: hand the browser a reason it can
+                    -- show (own -209xx/-208xx messages verbatim, anything else generic + debug log)
+                    rollback;
+                    apex_debug.error('SAVE_ASSET failed: %s', sqlerrm);
+                    apex_json.open_object;
+                    apex_json.write('error', case when sqlcode between -20999 and -20800
+                                                  then regexp_replace(sqlerrm, '^ORA-\d+: ', '')
+                                                  else 'Save failed (server error).' end);
+                    apex_json.close_object;
                 end;
                 ```
         }
@@ -961,6 +1099,15 @@ page 200 (
                   apex_json.open_object;
                   apex_json.write('status', 'ok');
                   apex_json.close_object;
+                exception
+                  when others then
+                    rollback;
+                    apex_debug.error('DELETE_ASSET failed: %s', sqlerrm);
+                    apex_json.open_object;
+                    apex_json.write('error', case when sqlcode between -20999 and -20800
+                                                  then regexp_replace(sqlerrm, '^ORA-\d+: ', '')
+                                                  else 'Could not delete (server error).' end);
+                    apex_json.close_object;
                 end;
                 ```
         }

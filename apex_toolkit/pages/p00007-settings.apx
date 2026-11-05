@@ -363,8 +363,10 @@ page 7 (
                       pck_kml_config_dml.set_string ('CLEANUP_INTERVAL', :P7_CLEANUP_INTERVAL);
                       pck_kml_config_dml.set_number ('CLEANUP_RETENTION_DAYS', to_number(:P7_CLEANUP_RETENTION_DAYS));
                       pck_kml_config_dml.set_string ('CLEANUP_STATUSES', upper(:P7_CLEANUP_STATUSES));
-                      commit;
+                      -- apply BEFORE committing: an invalid interval raises -20841 and the
+                      -- settings roll back instead of being persisted in a broken state
                       pck_kml_maintenance.apply_schedule;
+                      commit;
                     end;
                     ```
             }

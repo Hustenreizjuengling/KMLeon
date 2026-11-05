@@ -7,7 +7,10 @@
 --   * seeds any missing default config rows (existing values are preserved).
 --
 -- Safe to re-run. The "table already exists" error on KML_CONFIG (when it is
--- already present) is expected and ignored (whenever sqlerror continue).
+-- already present) is expected and ignored (whenever sqlerror continue). The
+-- script ends with a hard check: any invalid KMLeon object raises -20999 and
+-- exits the session with a failure code, so a CI step cannot miss a broken
+-- upgrade. It never creates data (demo jobs live in apex_toolkit/setup_samples.sql).
 --
 -- Run from this directory (sql/) as the schema that owns KMLeon, e.g.:
 --   sqlplus kmleon/****@db @update.sql
@@ -52,11 +55,17 @@ show errors
 prompt -- PCK_KML_JOB_ASSETS_DML
 @@packages/pck_kml_job_assets_dml.sql
 show errors
+prompt -- PCK_KML_ZIP
+@@packages/pck_kml_zip.sql
+show errors
 prompt -- PCK_KML_KMZ
 @@packages/pck_kml_kmz.sql
 show errors
 prompt -- PCK_KML_NOTIFY
 @@packages/pck_kml_notify.sql
+show errors
+prompt -- PCK_KML_GEOM
+@@packages/pck_kml_geom.sql
 show errors
 prompt -- PCK_KML_ENGINE
 @@packages/pck_kml_engine.sql
@@ -75,6 +84,15 @@ begin
 end;
 /
 
+prompt -- stamp the installed release (KML_CONFIG: KMLEON_VERSION / METRIC_LAST_INSTALL_AT)
+begin
+  pck_kml_config_dml.set_string('KMLEON_VERSION', pck_kml_engine.gc_version, 'METRIC');
+  pck_kml_config_dml.touch_metric('METRIC_LAST_INSTALL_AT');
+  commit;
+  dbms_output.put_line('KMLeon version ' || pck_kml_engine.gc_version);
+end;
+/
+
 prompt -- backfill access_key for jobs that predate the column (no-op when none)
 declare
   l_n pls_integer;
@@ -85,6 +103,23 @@ begin
 end;
 /
 
+
+prompt -- recompile dependants left INVALID by the package changes (e.g. PCK_KMLEON_TOOLS)
+begin
+  for r in (select object_name, object_type
+              from user_objects
+             where status <> 'VALID'
+               and (object_name like 'KML\_%' escape '\' or object_name like 'PCK\_KML%' escape '\')
+             order by case object_type when 'PACKAGE' then 1 when 'PACKAGE BODY' then 2 else 3 end)
+  loop
+    begin
+      execute immediate 'alter ' || case r.object_type when 'PACKAGE BODY' then 'package' else lower(r.object_type) end
+                        || ' ' || r.object_name || ' compile' || case r.object_type when 'PACKAGE BODY' then ' body' end;
+    exception when others then null;   -- the status query below reports what is still invalid
+    end;
+  end loop;
+end;
+/
 prompt
 prompt -- Object status (anything not VALID needs attention):
 column object_name format a28
@@ -93,6 +128,23 @@ select object_name, object_type, status
   from user_objects
  where (object_name like 'KML\_%' escape '\' or object_name like 'PCK\_KML%' escape '\')
  order by object_type, object_name;
+
+select value_string as kmleon_version from kml_config where config_key = 'KMLEON_VERSION';
+
+prompt -- hard check: fail loudly (and with a failure exit code) when anything is invalid
+whenever sqlerror exit failure
+declare
+  l_inv pls_integer;
+begin
+  select count(*) into l_inv from user_objects
+   where (object_name like 'KML\_%' escape '\' or object_name like 'PCK\_KML%' escape '\')
+     and status <> 'VALID';
+  if l_inv > 0 then
+    raise_application_error(-20999, 'KMLeon UPDATE INCOMPLETE: ' || l_inv || ' invalid object(s) -- see the status list above');
+  end if;
+end;
+/
+whenever sqlerror continue
 
 prompt
 prompt KMLeon updated.

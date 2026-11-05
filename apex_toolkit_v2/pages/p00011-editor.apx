@@ -1,0 +1,749 @@
+page 11 (
+    name: Editor
+    alias: EDITOR
+    title: KMLeon · Editor
+    appearance {
+        pageTemplate: @/standard
+        templateOptions: #DEFAULT#
+    }
+    navigation {
+        cursorFocus: doNotFocusCursor
+        warnOnUnsavedChanges: false
+    }
+    security {
+        authentication: public
+        authorizationScheme: @EDITOR_ACCESS
+        pageAccessProtection: unrestricted
+        formAutoComplete: false
+    }
+
+    region pick (
+        name: Job
+        type: staticContent
+        layout {
+            sequence: 10
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--hideHeader js-addHiddenHeadingRoleDesc
+                t-Region--noPadding
+            ]
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    pageItem P11_JOB_ID (
+        type: selectList
+        label {
+            label: Job
+        }
+        layout {
+            sequence: 10
+            region: @pick
+            slot: regionBody
+            columnSpan: 5
+        }
+        appearance {
+            template: @/optional-floating
+        }
+        lov {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select document_name || '  (#' || job_id || ', ' || status || ')' as d, job_id as r
+                  from kml_jobs
+                 order by job_id desc
+                ```
+            displayExtraValues: true
+            displayNullValue: true
+            nullDisplayValue: - Select a job -
+        }
+        security {
+            sessionStateProtection: unrestricted
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    button new-draft (
+        buttonName: NEW_DRAFT
+        label: New draft job
+        layout {
+            sequence: 20
+            region: @pick
+            slot: regionBody
+            startNewRow: false
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            templateOptions: [
+                #DEFAULT#
+                t-Button--mobileHideLabel
+                t-Button--iconLeft
+            ]
+            icon: fa-plus
+        }
+        behavior {
+            action: submitPage
+            executeValidations: false
+        }
+    )
+
+    pageItem P11_ACCESS_KEY (
+        type: hidden
+        layout {
+            sequence: 30
+            region: @pick
+            slot: regionBody
+        }
+        security {
+            sessionStateProtection: unrestricted
+        }
+    )
+
+    pageItem P11_DOC_NAME (
+        type: hidden
+        layout {
+            sequence: 40
+            region: @pick
+            slot: regionBody
+        }
+    )
+
+    pageItem P11_STATUS (
+        type: hidden
+        layout {
+            sequence: 50
+            region: @pick
+            slot: regionBody
+        }
+    )
+
+    region empty (
+        name: Start here
+        type: staticContent
+        layout {
+            sequence: 15
+            slot: body
+        }
+        appearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        source {
+            htmlCode:
+                ```html
+                <p>Select a job above to see and edit its features on the map, or create a new draft job to start drawing.</p>
+                ```
+        }
+        serverSideCondition {
+            type: itemIsNull
+            item: P11_JOB_ID
+        }
+    )
+
+    region actions (
+        name: Actions
+        type: staticContent
+        layout {
+            sequence: 18
+            slot: body
+        }
+        advanced {
+            htmlDomId: actions
+        }
+        appearance {
+            template: @/buttons-container
+            templateOptions: #DEFAULT#
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P11_JOB_ID
+        }
+    )
+
+    region map (
+        name: &P11_DOC_NAME.
+        type: map
+        layout {
+            sequence: 20
+            slot: body
+            columnSpan: 8
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--noPadding
+            ]
+        }
+        advanced {
+            htmlDomId: map
+        }
+        map {
+            height: 600
+        }
+        controls {
+            options: [
+                mousewheelZoom
+                scaleBar
+            ]
+        }
+        initialPositionAndZoom {
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select json_value(s, '$.lon' returning number) as map_lon, json_value(s, '$.lat' returning number) as map_lat, json_value(s, '$.zoom' returning number) as zoom_level
+                  from (select pck_kmleon_tools.map_start(p_job_id => to_number(:P11_JOB_ID)) as s from dual)
+                ```
+            geometryColumnDataType: longitudeLatitude
+            initialLongitudeColumn: MAP_LON
+            initialLatitudeColumn: MAP_LAT
+            initialZoomlevelColumn: ZOOM_LEVEL
+        }
+        attributes {
+            messagesPosition: below
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P11_JOB_ID
+        }
+
+        layer features_points (
+            name: Points
+            label {
+                label: Points
+            }
+            layout {
+                sequence: 10
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select * from (
+                    select asset_id as id, name, pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets where job_id = to_number(:P11_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('Point','MultiPoint')
+                    ```
+                pageItemsToSubmit: P11_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                fillColor: #2563eb
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+            link {
+                type: redirectThisApp
+                target: {
+                    page: 12
+                    items: {
+                        P12_ASSET_ID: &ID.
+                        P12_JOB_ID: &P11_JOB_ID.
+                        P12_ACCESS_KEY: &P11_ACCESS_KEY.
+                    }
+                }
+            }
+        )
+
+        layer features_lines (
+            layerType: lines
+            name: Lines
+            label {
+                label: Lines
+            }
+            layout {
+                sequence: 20
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select * from (
+                    select asset_id as id, name, pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets where job_id = to_number(:P11_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('LineString','MultiLineString')
+                    ```
+                pageItemsToSubmit: P11_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+            link {
+                type: redirectThisApp
+                target: {
+                    page: 12
+                    items: {
+                        P12_ASSET_ID: &ID.
+                        P12_JOB_ID: &P11_JOB_ID.
+                        P12_ACCESS_KEY: &P11_ACCESS_KEY.
+                    }
+                }
+            }
+        )
+
+        layer features_polygons (
+            layerType: polygons
+            name: Polygons
+            label {
+                label: Polygons
+            }
+            layout {
+                sequence: 30
+            }
+            source {
+                type: sqlQuery
+                sqlQuery:
+                    ```sql
+                    select * from (
+                    select asset_id as id, name, pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson) as geojson
+                      from kml_job_assets where job_id = to_number(:P11_JOB_ID)
+                    ) where json_value(geojson, '$.type') in ('Polygon','MultiPolygon')
+                    ```
+                pageItemsToSubmit: P11_JOB_ID
+            }
+            columnMapping {
+                geometryColumnDataType: geojson
+                geojsonColumn: GEOJSON
+                primaryKeyColumn: ID
+            }
+            appearance {
+                strokeColor: #2563eb
+                strokeWidth: 2
+                fillColor: #2563eb
+                fillOpacity: 0.3
+            }
+            tooltip {
+                advancedFormatting: true
+                htmlExpression: &NAME.
+            }
+            link {
+                type: redirectThisApp
+                target: {
+                    page: 12
+                    items: {
+                        P12_ASSET_ID: &ID.
+                        P12_JOB_ID: &P11_JOB_ID.
+                        P12_ACCESS_KEY: &P11_ACCESS_KEY.
+                    }
+                }
+            }
+        )
+    )
+
+    button add-feature (
+        buttonName: ADD_FEATURE
+        label: Add feature
+        layout {
+            sequence: 10
+            region: @actions
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-plus
+            templateOptions: [
+                #DEFAULT#
+                t-Button--mobileHideLabel
+                t-Button--iconLeft
+            ]
+            hot: true
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 12
+                items: {
+                    P12_JOB_ID: &P11_JOB_ID.
+                    P12_ACCESS_KEY: &P11_ACCESS_KEY.
+                }
+            }
+        }
+    )
+
+    button run (
+        buttonName: RUN
+        label: Run job
+        layout {
+            sequence: 20
+            region: @actions
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-play
+            templateOptions: [
+                #DEFAULT#
+                t-Button--mobileHideLabel
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: submitPage
+            executeValidations: false
+            requiresConfirmation: true
+        }
+        confirmation {
+            message: Build the KML/KMZ for this job now?
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: :P11_STATUS not in ('RUNNING', 'PENDING')
+        }
+    )
+
+    button download (
+        buttonName: DOWNLOAD
+        label: Download
+        layout {
+            sequence: 30
+            region: @actions
+            slot: next
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-download
+            templateOptions: [
+                #DEFAULT#
+                t-Button--mobileHideLabel
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 9
+                items: {
+                    P9_JOB_ID: &P11_JOB_ID.
+                    P9_ACCESS_KEY: &P11_ACCESS_KEY.
+                }
+            }
+        }
+        serverSideCondition {
+            type: item=value
+            item: P11_STATUS
+            value: COMPLETED
+        }
+    )
+
+    button details (
+        buttonName: DETAILS
+        label: Job details
+        layout {
+            sequence: 40
+            region: @actions
+            slot: previous
+        }
+        appearance {
+            buttonTemplate: @/text-with-icon
+            icon: fa-info-circle
+            templateOptions: [
+                #DEFAULT#
+                t-Button--mobileHideLabel
+                t-Button--iconLeft
+            ]
+        }
+        behavior {
+            action: redirectThisApp
+            target: {
+                page: 2
+                items: {
+                    P2_JOB_ID: &P11_JOB_ID.
+                }
+            }
+        }
+        serverSideCondition {
+            type: expression
+            plsqlExpression: apex_authorization.is_authorized('IST_ADMIN')
+        }
+    )
+
+    region features (
+        name: Features
+        type: classicReport
+        source {
+            location: localDatabase
+            type: sqlQuery
+            sqlQuery:
+                ```sql
+                select asset_id,
+                       case when name is null then '(unnamed feature ' || asset_id || ')'
+                            when length(name) > 60 then substr(name, 1, 57) || '...'
+                            else name end as name,
+                       substr(folder_name, 1, 40) as folder_name,
+                       json_value(pck_kml_geom.map_geojson(geometry_sdo, geometry_geojson), '$.type') as geom
+                  from kml_job_assets
+                 where job_id = to_number(:P11_JOB_ID)
+                 order by folder_name nulls first, display_order, asset_id
+                ```
+            pageItemsToSubmit: P11_JOB_ID
+        }
+        layout {
+            sequence: 30
+            slot: body
+            columnSpan: 4
+            startNewRow: false
+        }
+        appearance {
+            template: @/standard
+            templateOptions: [
+                #DEFAULT#
+                t-Region--scrollBody
+            ]
+        }
+        advanced {
+            htmlDomId: features
+        }
+        componentAppearance {
+            template: @/standard
+            templateOptions: #DEFAULT#
+        }
+        pagination {
+            type: rowRangesXToYOfZWithPagination
+        }
+        messages {
+            whenNoDataFound: No features yet - use Add feature to draw the first one.
+        }
+        serverSideCondition {
+            type: itemIsNotNull
+            item: P11_JOB_ID
+        }
+
+        column ASSET_ID (
+            reportColumnQueryId: 1
+            derivedColumn: N
+            type: hidden
+            layout {
+                sequence: 10
+            }
+        )
+        column NAME (
+            reportColumnQueryId: 2
+            derivedColumn: N
+            type: link
+            heading {
+                heading: Name
+            }
+            layout {
+                sequence: 20
+            }
+            link {
+                target: {
+                    page: 12
+                    items: {
+                        P12_ASSET_ID: #ASSET_ID#
+                        P12_JOB_ID: &P11_JOB_ID.
+                        P12_ACCESS_KEY: &P11_ACCESS_KEY.
+                    }
+                }
+                linkText: #NAME#
+            }
+        )
+        column FOLDER_NAME (
+            reportColumnQueryId: 3
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Folder
+            }
+            layout {
+                sequence: 30
+            }
+        )
+        column GEOM (
+            reportColumnQueryId: 4
+            derivedColumn: N
+            type: plainText
+            heading {
+                heading: Type
+            }
+            layout {
+                sequence: 40
+            }
+        )
+    )
+
+    process fetch (
+        name: Load the job
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                declare
+                  l_job kml_jobs%rowtype;
+                begin
+                  if :P11_JOB_ID is null then
+                    :P11_DOC_NAME := null;
+                    :P11_STATUS   := null;
+                    return;
+                  end if;
+                  l_job := pck_kml_jobs_dml.get(to_number(:P11_JOB_ID));
+                  if l_job.job_id is null then
+                    :P11_JOB_ID := null;
+                    apex_error.add_error(p_message => 'That job no longer exists.',
+                                         p_display_location => apex_error.c_inline_in_notification);
+                    return;
+                  end if;
+                  :P11_DOC_NAME   := l_job.document_name;
+                  :P11_STATUS     := l_job.status;
+                  :P11_ACCESS_KEY := l_job.access_key;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: beforeHeader
+        }
+    )
+
+    process new-draft (
+        name: Create a draft job
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  :P11_JOB_ID := pck_kml_job_api.create_job(
+                                   p_document_name => 'Editor draft ' || to_char(systimestamp, 'YYYY-MM-DD HH24:MI'),
+                                   p_output_format => 'KMZ',
+                                   p_user_tab      => 'APP_USER',
+                                   p_user_id       => :APP_USER);
+                  commit;
+                end;
+                ```
+        }
+        execution {
+            sequence: 10
+            point: processing
+        }
+        serverSideCondition {
+            type: request=Value
+            value: NEW_DRAFT
+        }
+        successMessage {
+            successMessage: Draft job &P11_JOB_ID. created - add the first feature.
+        }
+    )
+
+    process run (
+        name: Run the job
+        type: executeCode
+        source {
+            plsqlCode:
+                ```plsql
+                begin
+                  pck_kml_job_api.run_now(to_number(:P11_JOB_ID));
+                  :P11_STATUS := pck_kml_job_api.get_status(to_number(:P11_JOB_ID));
+                  if :P11_STATUS <> 'COMPLETED' then
+                    raise_application_error(-20907, 'The run ended with status ' || :P11_STATUS || ': '
+                      || substr(pck_kml_jobs_dml.get(to_number(:P11_JOB_ID)).error_message, 1, 300));
+                  end if;
+                end;
+                ```
+        }
+        execution {
+            sequence: 20
+            point: processing
+        }
+        serverSideCondition {
+            type: request=Value
+            value: RUN
+        }
+        successMessage {
+            successMessage: Job built - the download is ready.
+        }
+    )
+
+    branch to-self (
+        name: Reload the editor
+        execution {
+            sequence: 10
+            point: afterProcessing
+        }
+        behavior {
+            type: pageOrUrl
+            target: {
+                page: 11
+            }
+        }
+    )
+
+    dynamicAction da-job-change (
+        name: Switch job
+        execution {
+            sequence: 10
+        }
+        when {
+            event: change
+            selectionType: items
+            items: P11_JOB_ID
+        }
+        action submit (
+            action: submitPage
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+    )
+
+    dynamicAction da-dialog-closed (
+        name: Refresh after the feature dialog closes
+        execution {
+            sequence: 20
+        }
+        when {
+            event: apexafterclosedialog
+            selectionType: jQuerySelector
+            jquerySelector: #actions, #map, #features
+        }
+        action refresh-map (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @map
+            }
+            execution {
+                sequence: 10
+                fireOnInit: false
+            }
+        )
+        action refresh-features (
+            action: refresh
+            affectedElements {
+                selectionType: region
+                region: @features
+            }
+            execution {
+                sequence: 20
+                fireOnInit: false
+            }
+        )
+    )
+
+)

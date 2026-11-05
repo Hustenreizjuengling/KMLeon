@@ -84,6 +84,34 @@ end pck_kml_job_assets_dml;
 create or replace package body pck_kml_job_assets_dml
 as
 
+  -- Style values end up verbatim in the KML: reject what KML cannot take so a
+  -- single bad asset cannot produce an invalid document (colors are aabbggrr
+  -- hex -- see PCK_KML_ENGINE.rgba_to_kml; scales/widths are >= 0).
+  procedure validate_style(
+    p_label_color in varchar2, p_line_color in varchar2, p_poly_color in varchar2,
+    p_icon_scale in number, p_label_scale in number, p_line_width in number
+  ) is
+    procedure chk_color(p_what varchar2, p_val varchar2) is
+    begin
+      if p_val is not null and not regexp_like(p_val, '^[0-9A-Fa-f]{8}$') then
+        raise_application_error(-20822, p_what || ' "' || p_val || '" is not a KML color (expected 8 hex digits aabbggrr, e.g. pck_kml_engine.rgba_to_kml(''FF0000'')).');
+      end if;
+    end;
+    procedure chk_num(p_what varchar2, p_val number) is
+    begin
+      if p_val is not null and p_val < 0 then
+        raise_application_error(-20823, p_what || ' must not be negative (got ' || p_val || ').');
+      end if;
+    end;
+  begin
+    chk_color('label_color', p_label_color);
+    chk_color('line_color',  p_line_color);
+    chk_color('poly_color',  p_poly_color);
+    chk_num('icon_scale',  p_icon_scale);
+    chk_num('label_scale', p_label_scale);
+    chk_num('line_width',  p_line_width);
+  end validate_style;
+
   function ins(
     p_job_id           in number,
     p_geometry_sdo     in sdo_geometry default null,
@@ -119,6 +147,7 @@ as
       raise_application_error(-20820,
         'Asset for job ' || p_job_id || ' has no geometry (provide SDO or GeoJSON).');
     end if;
+    validate_style(p_label_color, p_line_color, p_poly_color, p_icon_scale, p_label_scale, p_line_width);
 
     insert into kml_job_assets (
       job_id, geometry_sdo, geometry_geojson, name, description, extended_data,
@@ -228,8 +257,17 @@ as
     -- raw ORA-40441 that rolls back the caller's transaction.
     begin
       l_root := json_object_t.parse(p_feature_collection);
-      if l_root.has('features') then
-        l_feats := l_root.get_array('features');   -- raises if 'features' is not an array
+      if upper(nvl(l_root.get_string('type'), '?')) not in
+         ('FEATURECOLLECTION', 'FEATURE', 'POINT', 'MULTIPOINT', 'LINESTRING', 'MULTILINESTRING',
+          'POLYGON', 'MULTIPOLYGON', 'GEOMETRYCOLLECTION')
+      then
+        raise_application_error(-20821, 'not a GeoJSON object (type "' || l_root.get_string('type') || '")');
+      end if;
+      if upper(l_root.get_string('type')) = 'FEATURECOLLECTION' then
+        l_feats := l_root.get_array('features');   -- NULL when 'features' is missing / not an array
+        if l_feats is null then
+          raise_application_error(-20821, 'FeatureCollection without a "features" array');
+        end if;
       else
         l_feats := json_array_t();                 -- a single Feature or a bare geometry
         l_feats.append(l_root);
@@ -237,7 +275,7 @@ as
     exception
       when others then
         pck_kml_log.warn(c_pkg, 'add_features_geojson', 'invalid GeoJSON: ' || sqlerrm, p_job_id);
-        raise_application_error(-20821, 'Invalid GeoJSON payload.');
+        raise_application_error(-20821, 'Invalid GeoJSON payload (' || substr(sqlerrm, 1, 200) || ').');
     end;
 
     for i in 0 .. l_feats.get_size - 1 loop
@@ -253,12 +291,23 @@ as
         l_poly_color := null; l_poly_fill := null; l_poly_outline := null;
         l_ext := json_object_t();
 
-        if l_feat.has('geometry') then
-          l_geom_obj := l_feat.get_object('geometry');
-          l_props    := l_feat.get_object('properties');
+        if upper(l_feat.get_string('type')) = 'FEATURE' then
+          l_geom_obj := case when l_feat.get('geometry') is not null and l_feat.get('geometry').is_object
+                             then l_feat.get_object('geometry') end;
+          l_props    := case when l_feat.get('properties') is not null and l_feat.get('properties').is_object
+                             then l_feat.get_object('properties') end;
         else
           l_geom_obj := l_feat;       -- bare geometry
           l_props    := null;
+        end if;
+
+        -- a geometry needs a known type and coordinates (or geometries for a collection)
+        if l_geom_obj is not null and not (
+             upper(nvl(l_geom_obj.get_string('type'), '?')) in ('POINT', 'MULTIPOINT', 'LINESTRING', 'MULTILINESTRING', 'POLYGON', 'MULTIPOLYGON', 'GEOMETRYCOLLECTION')
+             and (l_geom_obj.has('coordinates') or l_geom_obj.has('geometries')))
+        then
+          pck_kml_log.warn(c_pkg, 'add_features_geojson', 'feature ' || i || ' has no valid geometry (type "' || l_geom_obj.get_string('type') || '"); skipped', p_job_id);
+          l_geom_obj := null;
         end if;
 
         if l_geom_obj is null then
@@ -355,6 +404,7 @@ as
     l_has_geom boolean := p_geometry_sdo is not null
                           or (p_geometry_geojson is not null and dbms_lob.getlength(p_geometry_geojson) > 0);
   begin
+    validate_style(p_label_color, p_line_color, p_poly_color, p_icon_scale, p_label_scale, p_line_width);
     update kml_job_assets
        set geometry_sdo     = case when l_has_geom then p_geometry_sdo     else geometry_sdo     end,
            geometry_geojson = case when l_has_geom then p_geometry_geojson else geometry_geojson end,

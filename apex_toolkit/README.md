@@ -92,7 +92,10 @@ format/version matches APEX 26.1 exactly.
   non-checksum setting — that is intentional for this deliberately public, token-gated page.)
 - **110 My maps** (native base) — a **public** landing page (the app's **home page**) that
   lists a user's jobs from a **plain native classic report** filtered by **User id** + **User
-  tab** (both editable; default to `&APP_USER.` / `APP_USER`). A declarative **Open editor**
+  tab** (both editable; default to `&APP_USER.` / `APP_USER`). Access rule (shared with page
+  210): anonymous sessions see nothing, a signed-in user sees only their own jobs
+  (`user_tab = 'APP_USER'`, `user_id = APP_USER`), and the filter fields are honoured for
+  `IST_ADMIN` members only — so no user can obtain another user's `access_key`. A declarative **Open editor**
   link column targets the classic editor (page 100) with `P100_JOB_ID` + `P100_ACCESS_KEY` so
   APEX builds the URL with the right checksum. All job-creating pages tag new jobs with
   `user_tab => 'APP_USER'`, `user_id => v('APP_USER')` so they show up here. This page is kept
@@ -106,14 +109,20 @@ format/version matches APEX 26.1 exactly.
 The side navigation is split into a public **My maps** entry (top) and an **Admin** group
 holding every other page; the Admin group and its links are gated by
 `apex_authorization.is_authorized('IST_ADMIN')` (via `serverSideCondition`), so they vanish
-without the privilege. All toolkit pages except the two public ones (100, 110) and login
-require the **`IST_ADMIN`** authorization scheme (currently `return 1=1;` — replace with
-real logic to lock the toolkit down). The public pages also set `navigation {
+without the privilege. All toolkit pages except the public ones (100, 110, 200, 210) and login
+require the **`IST_ADMIN`** authorization scheme: anonymous users are never admins; if
+the workspace defines the group **`KMLEON_ADMIN`**, membership is required; without the
+group every authenticated user is an admin (upgrade-safe default). Lock the toolkit
+down by creating the group (Workspace Administration ▸ Manage Users and Groups) and
+adding the administrators. The app's *Version* attribute carries the KMLeon release
+(shown in the footer) and is kept in sync with `VERSION` / `PCK_KML_ENGINE.gc_version`. The public pages also set `navigation {
 warnOnUnsavedChanges: false }` so navigating away (Open editor / Download) never prompts.
 
 Actions are wired as **Dynamic Actions** running server-side PL/SQL (no page
-branches); the download uses a before-header streaming process. The map layer omits
-point-only styling so it renders points, lines and polygons from one geojson source.
+branches); the download uses a before-header streaming process. A native APEX map
+layer draws **one geometry type** (its *Layer Type*: points, lines or polygons), so
+every map in the toolkit (pages 1, 11, 100, 200) stacks three layers over the same
+GeoJSON query, each filtered with `json_value(geojson, '$.type')`.
 
 ## Public editor flow (external integration)
 
@@ -132,7 +141,9 @@ begin
   commit;
   l_key := pck_kml_job_api.get_access_key(l_job);   -- generated on create
   -- redirect the user to the public editor (same APEX instance):
-  --   f?p=<TOOLKIT_APP_ID>:100:0::::P100_JOB_ID,P100_ACCESS_KEY:<l_job>,<l_key>
+  --   friendly: .../ords/r/<workspace>/kmleon/public-editor-v2?p200_job_id=<l_job>&p200_access_key=<l_key>
+  --   classic : f?p=<TOOLKIT_APP_ID>:200:0::NO::P200_JOB_ID,P200_ACCESS_KEY:<l_job>,<l_key>
+  --   (or simply use the URL from PCK_KMLEON_TOOLS.public_editor_url / POST /jobs)
 end;
 ```
 
@@ -147,8 +158,12 @@ end;
   and ORDS context root are derived from the incoming request's CGI environment. The
   `key` parameter is required and must match — the endpoint only formats what the
   caller already knows, so it cannot be used to harvest tokens.
-- The two link items are `sessionStateProtection: unrestricted`, so the link needs **no
-  APEX checksum** — the unguessable `access_key` is the access control.
+- Page 200 is `pageAccessProtection: unrestricted` and its two link items are
+  `sessionStateProtection: unrestricted`, so the link needs **no APEX checksum** — the
+  unguessable `access_key` is the access control. The classic editor (page 100) keeps
+  *Arguments Must Have Checksum*, so a hand-built page-100 URL fails with a session state
+  protection violation; reach page 100 only through links APEX builds itself (the *Open
+  editor* column on page 110), and deep-link external users to page 200.
 - The job is **not** submitted/rendered by your app; the user finishes it in the editor
   and downloads on demand. The job stays DRAFT throughout, so it can be reopened/edited
   with the same link any number of times.
@@ -221,10 +236,10 @@ target column type requires it.
   ```
 - **App Builder**: zip the app folder and import the zip (App Builder ▸ Import).
 
-Then install the helper package and a few sample jobs:
+Then install the helper package (and, on a demo instance, a few sample jobs):
 ```sql
-@apex_toolkit/setup.sql
+@apex_toolkit/setup.sql            -- PCK_KMLEON_TOOLS (page helpers); safe on production
+@apex_toolkit/setup_samples.sql    -- optional: three demo jobs (dev/demo only)
 ```
-This creates `PCK_KMLEON_TOOLS` (the page helpers) and seeds a few sample jobs via
-`PCK_KML_JOB_API` so the reports have data immediately. Requires the **CREATE JOB**
-privilege for the Async playground (`run_async`) and the cleanup scheduler.
+Requires the **CREATE JOB** privilege for the Async playground (`run_async`) and
+the cleanup scheduler.

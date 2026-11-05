@@ -79,5 +79,7 @@ begin
 
   dbms_output.put_line('--------------------------------------------------');
   dbms_output.put_line('public smoke test done');
+  -- run_all.sql summary: mark this script as passed (no-op when run standalone)
+  begin execute immediate q'[insert into kml_test_results (test) values ('smoke_test_public')]'; exception when others then null; end;
 end;
 /

@@ -234,6 +234,11 @@ page 3 (
                       end if;
                       commit;
                       pck_kml_job_api.run_now(l_job);
+                      -- a failed run must not read as success: surface the engine's message
+                      if pck_kml_job_api.get_status(l_job) <> 'COMPLETED' then
+                        raise_application_error(-20907, 'Job ' || l_job || ' was created but its run ' || pck_kml_job_api.get_status(l_job)
+                          || ': ' || substr(pck_kml_jobs_dml.get(l_job).error_message, 1, 300));
+                      end if;
                     end;
                     ```
             }
@@ -285,6 +290,11 @@ page 3 (
                                  p_user_id       => v('APP_USER'));
                       commit;
                       pck_kml_job_api.run_now(l_job);
+                      -- a failed run must not read as success: surface the engine's message
+                      if pck_kml_job_api.get_status(l_job) <> 'COMPLETED' then
+                        raise_application_error(-20907, 'Job ' || l_job || ' was created but its run ' || pck_kml_job_api.get_status(l_job)
+                          || ': ' || substr(pck_kml_jobs_dml.get(l_job).error_message, 1, 300));
+                      end if;
                     end;
                     ```
             }

@@ -407,18 +407,28 @@ page 210 (
         source {
             plsqlCode:
                 ```plsql
+                -- Who may see which jobs: anonymous sessions see nothing; a signed-in
+                -- user sees their own jobs (user_tab APP_USER / user_id = APP_USER);
+                -- only IST_ADMIN may look up another user id / tab (the page's filter
+                -- fields are honoured for admins only, never for ordinary users).
                 declare
-                  l_user varchar2(255) := nvl(v('APP_USER'), 'nobody');
+                  l_user  varchar2(255) := nvl(v('APP_USER'), 'nobody');
+                  l_anon  boolean := l_user in ('nobody', 'APEX_PUBLIC_USER');
+                  l_admin boolean := not l_anon and apex_authorization.is_authorized('IST_ADMIN');
+                  l_uid   varchar2(128) := case when l_admin then nvl(apex_application.g_x01, l_user) else l_user end;
+                  l_utab  varchar2(128) := case when l_admin then nvl(apex_application.g_x02, 'APP_USER') else 'APP_USER' end;
                 begin
                   apex_json.open_object;
-                  apex_json.write('can_create', case when l_user in ('nobody', 'APEX_PUBLIC_USER') then false else true end);
+                  apex_json.write('can_create', not l_anon);
+                  apex_json.write('is_admin', l_admin);
                   apex_json.open_array('jobs');
                   for r in (select job_id, document_name, status, output_format, asset_count,
                                    to_char(created_at, 'DD.MM.YYYY HH24:MI')      as created,
                                    to_char(created_at, 'YYYY-MM-DD HH24:MI:SS')   as created_iso
                               from kml_jobs
-                             where user_id  = apex_application.g_x01
-                               and user_tab = apex_application.g_x02
+                             where not l_anon
+                               and user_id  = l_uid
+                               and user_tab = l_utab
                              order by job_id desc) loop
                     apex_json.open_object;
                     apex_json.write('job_id', r.job_id);
@@ -497,7 +507,13 @@ page 210 (
                   if l_user in ('nobody', 'APEX_PUBLIC_USER') then
                     raise_application_error(-20905, 'Anmeldung erforderlich.');
                   end if;
-                  select access_key into l_key from kml_jobs where job_id = l_job;
+                  -- Ownership: the key is handed out only for the caller's own jobs
+                  -- (user_tab APP_USER); IST_ADMIN may fetch any job's link.
+                  select access_key into l_key
+                    from kml_jobs
+                   where job_id = l_job
+                     and (apex_authorization.is_authorized('IST_ADMIN')
+                          or (user_tab = 'APP_USER' and user_id = l_user));
                   l_url := apex_page.get_url(
                              p_page      => 200,
                              p_items     => 'P200_JOB_ID,P200_ACCESS_KEY',
@@ -507,9 +523,14 @@ page 210 (
                   apex_json.write('url', l_url);
                   apex_json.close_object;
                 exception
-                  when others then
+                  when no_data_found then
                     apex_json.open_object;
-                    apex_json.write('error', sqlerrm);
+                    apex_json.write('error', 'Karte nicht gefunden oder kein Zugriff.');
+                    apex_json.close_object;
+                  when others then
+                    apex_debug.error('EDITOR_URL: %s', sqlerrm);
+                    apex_json.open_object;
+                    apex_json.write('error', case when sqlcode = -20905 then 'Anmeldung erforderlich.' else 'Link konnte nicht erzeugt werden.' end);
                     apex_json.close_object;
                 end;
                 ```
